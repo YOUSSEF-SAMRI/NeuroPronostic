@@ -7,7 +7,7 @@ from utils.security import verify_password
 class LoginScreen(QWidget):
     def __init__(self, stack):
         super().__init__()
-        self.stack = stack   # on garde une référence au QStackedWidget pour naviguer
+        self.stack = stack
 
         layout = QVBoxLayout()
 
