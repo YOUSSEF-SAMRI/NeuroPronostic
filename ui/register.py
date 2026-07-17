@@ -32,7 +32,7 @@ class RegisterScreen(QWidget):
         register_button.clicked.connect(self.handle_register)
         layout.addWidget(register_button)
 
-        # Lien vers l'écran Login (pour ceux qui ont déjà un compte)
+        # Lien vers l'ecran Login (ila deja inscrit )
         go_to_login = QPushButton("Déjà un compte ? Se connecter")
         go_to_login.clicked.connect(lambda: self.stack.setCurrentIndex(0))
         layout.addWidget(go_to_login)
