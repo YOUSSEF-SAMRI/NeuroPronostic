@@ -33,6 +33,9 @@ class DashboardScreen(QWidget):
         main_layout.addLayout(csv_layout)
 
         self.setLayout(main_layout)
+        
+        
+        
 
     def choisir_nifti(self):
         chemin, _ = QFileDialog.getOpenFileName( # katrje3 joj 7wyaj (path,file_type) ex ("C:/Users/youssef/Desktop/a.png","PNG Files")
