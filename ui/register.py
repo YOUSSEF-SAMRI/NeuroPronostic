@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QCursor
 from models.database import get_connections
 from utils.security import hash_password
 import psycopg2
@@ -34,7 +35,7 @@ class RegisterScreen(QWidget):
         # --- Logo (pas de bordure) ---
         logo = QLabel()
         pixmap = QPixmap("assets/logo.png")
-        logo.setPixmap(pixmap.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio,
+        logo.setPixmap(pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio,
                                       Qt.TransformationMode.SmoothTransformation))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo.setStyleSheet("border: none; background: transparent;")
@@ -79,13 +80,27 @@ class RegisterScreen(QWidget):
 
         # --- Lien "Deja un compte ?" ---
         go_to_login = QPushButton("Deja un compte ?")
+        go_to_login.setMinimumWidth(160)
+        go_to_login.setCursor(
+            QCursor(Qt.CursorShape.PointingHandCursor))
         go_to_login.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                color: #d63384;
-                text-decoration: underline;
-            }
+        QPushButton{
+            border:none;
+            background:transparent;
+            color:#d63384;
+            font-size:13px;
+        }
+
+        QPushButton:hover{
+            color:#a61c5d;
+            text-decoration:underline;
+            font-weight:bold;
+        }
+
+        QPushButton:pressed{
+            color:#7d1647;
+        }
+
         """)
         go_to_login.clicked.connect(lambda: self.stack.setCurrentIndex(0))
         card_layout.addWidget(go_to_login, alignment=Qt.AlignmentFlag.AlignRight)
@@ -124,13 +139,25 @@ class RegisterScreen(QWidget):
 
     def input_style(self):
         return """
-            QLineEdit {
-                background-color: #eaf2fb;
-                border: 1px solid #b8d4f0;
-                border-radius: 5px;
-                padding: 8px;
-                color : #000000;
-            }
+            QLineEdit{
+
+            background-color:#edf4fc;
+            border:2px solid #bfd9f5;
+            border-radius:12px;
+            padding:12px;
+            color:black;
+            font-size:14px;
+
+        }
+
+        
+
+        QLineEdit:focus{
+
+            border:2px solid #3d8bfd;
+            background-color:white;
+
+        }
         """
 
     def handle_signUp(self):

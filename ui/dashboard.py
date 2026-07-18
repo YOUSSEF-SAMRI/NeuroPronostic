@@ -1,52 +1,65 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog
+    QApplication,QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog
 )
+from PyQt6.QtWidgets import QPushButton
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
+import sys
+
 
 class DashboardScreen(QWidget):
     def __init__(self):
         super().__init__()
-
+    
         
-        main_layout = QVBoxLayout()
-
-        title = QLabel("Dashboard - Nouveau patient")
-        main_layout.addWidget(title)
-
-        # Bloc upload NIfTI 
-        nifti_layout = QHBoxLayout()
-        self.nifti_button = QPushButton("Choisir fichier NIfTI")
-        self.nifti_label = QLabel("Aucun fichier sélectionné")
-        self.nifti_button.clicked.connect(self.choisir_nifti)
-
-        nifti_layout.addWidget(self.nifti_button)
-        nifti_layout.addWidget(self.nifti_label)
-        main_layout.addLayout(nifti_layout)
-
-        # Bloc upload CSV 
-        csv_layout = QHBoxLayout()
-        self.csv_button = QPushButton("Choisir fichier CSV")
-        self.csv_label = QLabel("Aucun fichier sélectionné")
-        self.csv_button.clicked.connect(self.choisir_csv)
-
-        csv_layout.addWidget(self.csv_button)
-        csv_layout.addWidget(self.csv_label)
-        main_layout.addLayout(csv_layout)
-
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background-color: #e8e8e8;")
+        
+        main_layout = QHBoxLayout()        
+        sidebare = QWidget()
+        content = QWidget()
+        
+        main_layout.addWidget(sidebare)
+        main_layout.addWidget(content)
+        
+        sidebare.setFixedWidth(250)
+        sidebar_layout = QVBoxLayout()
+        sidebare.setLayout(sidebar_layout)
+        
+        logo = QLabel()
+        pixmap = QPixmap("assets/logo.png")
+        logo.setPixmap(pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio,
+                                      Qt.TransformationMode.SmoothTransformation))
+        
+        sidebar_layout.addWidget(
+            logo)
+        
+        dashboard_button = QPushButton("Dashboard")
+        sidebar_layout.addWidget(dashboard_button)
+        
+        historique_button = QPushButton("historique_button")
+        sidebar_layout.addWidget(historique_button)
+        
+        patients_button = QPushButton( "Patients")
+        sidebar_layout.addWidget(patients_button)
+        
+        settings_button = QPushButton("Paramètres")
+        sidebar_layout.addWidget(settings_button)
+        
+        sidebar_layout.addStretch()
+        
+        logout_button = QPushButton("Déconnexion")
+        sidebar_layout.addWidget(logout_button)
+        
+        
+        
         self.setLayout(main_layout)
         
-        
-        
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = DashboardScreen()
+    window.resize(800, 600) # Taille initiale pour bien voir le résultat
+    window.show()
+    sys.exit(app.exec())
 
-    def choisir_nifti(self):
-        chemin, _ = QFileDialog.getOpenFileName( # katrje3 joj 7wyaj (path,file_type) ex ("C:/Users/youssef/Desktop/a.png","PNG Files")
-            self, "Choisir un fichier NIfTI", "", "NIfTI Files (*.nii *.nii.gz)"
-        )
-        if chemin:
-            self.nifti_label.setText(chemin)
-
-    def choisir_csv(self):
-        chemin, _ = QFileDialog.getOpenFileName(
-            self, "Choisir un fichier CSV", "", "CSV Files (*.csv)"
-        )
-        if chemin:
-            self.csv_label.setText(chemin)
+ 
