@@ -1,17 +1,26 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QFrame, QFileDialog
+    QPushButton, QLabel, QFrame, QFileDialog,
+    QGraphicsDropShadowEffect, QMessageBox
 )
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QColor
 from PyQt6.QtCore import Qt
 import sys
 import os
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+import nibabel as nib
+import pandas as pd
+
+# Colonnes attendues dans le CSV clinique — à adapter selon le modele
+REQUIRED_CLINICAL_COLUMNS = ["age", "sexe", "grade_tumeur"]  
+
 
 class DashboardScreen(QWidget):
     def __init__(self):
         super().__init__()
+
+        self.image_path = None
+        self.clinical_path = None
+        self.evaluate_button = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("background-color: #f4f5f7;")
@@ -28,7 +37,6 @@ class DashboardScreen(QWidget):
 
         self.setLayout(main_layout)
 
-    
     def build_sidebar(self):
         sidebar = QWidget()
         sidebar.setFixedWidth(250)
@@ -130,14 +138,13 @@ class DashboardScreen(QWidget):
 
         return sidebar
 
-  
     def build_content(self):
         content = QWidget()
         content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(60, 50, 60, 50)
+        content_layout.setContentsMargins(60, 80, 60, 50)
         content_layout.setSpacing(10)
         content.setLayout(content_layout)
-       
+
         title = QLabel("NeuroPronostic")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 32px; font-weight: bold; color: #374151;")
@@ -157,8 +164,14 @@ class DashboardScreen(QWidget):
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(30)
 
-        image_card = self.create_upload_card("Image Médicale (NIFTI)", "Upload Images...")
-        clinical_card = self.create_upload_card("Données cliniques (.csv)", "Upload File...")
+        image_card = self.create_upload_card(
+            "Image Médicale (NIFTI)", "Upload Images...",
+            "NIFTI Files (*.nii *.nii.gz)", "image"
+        )
+        clinical_card = self.create_upload_card(
+            "Données cliniques (.csv)", "Upload File...",
+            "CSV Files (*.csv)", "clinical"
+        )
 
         cards_layout.addWidget(image_card)
         cards_layout.addWidget(clinical_card)
@@ -168,25 +181,20 @@ class DashboardScreen(QWidget):
         evaluate_button = QPushButton("Evaluate prognosis")
         evaluate_button.setFixedHeight(45)
         evaluate_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        evaluate_button.setStyleSheet("""
-            QPushButton {
-                background-color: #6b7280;
-                color: white;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #4b5563;
-            }
-        """)
+        evaluate_button.setEnabled(False)
+        evaluate_button.clicked.connect(self.run_evaluation)
+
         content_layout.addWidget(evaluate_button)
         content_layout.addStretch()
 
+        self.evaluate_button = evaluate_button
+        self.update_evaluate_button()  
+
         return content
 
-    def create_upload_card(self, label_text, button_text):
+    def create_upload_card(self, label_text, button_text, file_filter, key):
         card = QFrame()
+        card.setFixedHeight(270)
         card.setStyleSheet("""
             QFrame {
                 background-color: white;
@@ -203,11 +211,8 @@ class DashboardScreen(QWidget):
 
         label = QLabel(label_text)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("""
-            font-weight: 600;
-            font-size: 14px;
-            color: #111827;
-        """)
+        label.setFixedHeight(50)
+        label.setStyleSheet("font-weight: 600; font-size: 14px; color: #111827;")
 
         upload_button = QPushButton(f" {button_text}")
         upload_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -228,13 +233,114 @@ class DashboardScreen(QWidget):
                 color: #0f766e;
             }
         """)
-        upload_button.clicked.connect(lambda: self.select_file(button_text))
-
+        upload_button.clicked.connect(lambda: self.select_file(upload_button, file_filter, key))
 
         card_layout.addWidget(label)
         card_layout.addWidget(upload_button)
 
         return card
+
+    def select_file(self, button, file_filter, key):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "", file_filter)
+        if not file_path:
+            return
+
+        # verifie le format 
+        if key == "image":
+            ok, message = self.validate_image(file_path)
+        else:
+            ok, message = self.validate_clinical(file_path)
+
+        if not ok:
+            QMessageBox.critical(self, "Fichier invalide", message)
+            return  # on n'accepte pas le fichier, self.image_path/clinical_path restent inchangés
+
+        if key == "image":
+            self.image_path = file_path
+        elif key == "clinical":
+            self.clinical_path = file_path
+
+        filename = os.path.basename(file_path)
+        button.setText(f" ✔ {filename}")
+        button.setStyleSheet("""
+            QPushButton {
+                border: 1.5px solid #2dd4bf;
+                border-radius: 10px;
+                padding: 30px;
+                background-color: #ccfbf1;
+                color: #0f766e;
+                font-size: 13px;
+                font-weight: 600;
+            }
+        """)
+
+        self.update_evaluate_button()
+
+    def validate_image(self, file_path):
+        """Vérifie que le fichier NIFTI est lisible et exploitable."""
+        try:
+            img = nib.load(file_path)
+        except Exception as e:
+            return False, f"Impossible de lire le fichier NIFTI :\n{e}"
+
+        data = img.get_fdata()
+
+        if data.ndim not in (3, 4):
+            return False, f"Dimension inattendue : {data.ndim}D (3D ou 4D attendu)."
+
+        if data.size == 0:
+            return False, "L'image est vide."
+
+        # Volume entièrement à zéro = scan probablement vide/corrompu
+        if not (data != 0).any():
+            return False, "L'image ne contient que des zéros (scan vide ou corrompu)."
+
+        return True, ""
+
+    def validate_clinical(self, file_path):
+        """Vérifie que le CSV a les bonnes colonnes et pas de données manquantes critiques."""
+        try:
+            df = pd.read_csv(file_path)
+        except Exception as e:
+            return False, f"Impossible de lire le fichier CSV :\n{e}"
+
+        if df.empty:
+            return False, "Le fichier CSV est vide."
+
+        missing_columns = [c for c in REQUIRED_CLINICAL_COLUMNS if c not in df.columns]
+        if missing_columns:
+            return False, "Colonnes manquantes dans le CSV :\n- " + "\n- ".join(missing_columns)
+
+        # Vérifie les valeurs manquantes uniquement sur les colonnes requises
+        na_report = df[REQUIRED_CLINICAL_COLUMNS].isna().sum()
+        na_report = na_report[na_report > 0]
+        if not na_report.empty:
+            details = "\n".join(f"- {col} : {count} valeur(s) manquante(s)" for col, count in na_report.items())
+            return False, f"Données manquantes détectées :\n{details}"
+
+        return True, ""
+
+    def update_evaluate_button(self):
+        ready = self.image_path is not None and self.clinical_path is not None
+        self.evaluate_button.setEnabled(ready)
+        self.evaluate_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {"#2563eb" if ready else "#6b7280"};
+                color: white;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {"#1d4ed8" if ready else "#4b5563"};
+            }}
+        """)
+
+    def run_evaluation(self):
+        if not self.image_path or not self.clinical_path:
+            return
+        print(f"Analyse en cours : {self.image_path} + {self.clinical_path}")
+        # branche ici ton pipeline (chargement NIFTI, lecture CSV, appel au modèle)
 
     def _make_shadow(self):
         shadow = QGraphicsDropShadowEffect()
@@ -243,10 +349,6 @@ class DashboardScreen(QWidget):
         shadow.setYOffset(4)
         shadow.setColor(QColor(0, 0, 0, 25))
         return shadow
-    def select_file(self, context_label):
-        file_path, _ = QFileDialog.getOpenFileName(self, f"Sélectionner - {context_label}")
-        if file_path:
-            print(f"[{context_label}] Fichier sélectionné : {file_path}")
 
 
 if __name__ == "__main__":
