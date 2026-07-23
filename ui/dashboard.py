@@ -9,14 +9,19 @@ import sys
 import os
 import nibabel as nib
 import pandas as pd
-
+# from ui.register import RegisterScreen  # adapte le chemin selon ton projet
+from ui.manage_users import ManageUsersScreen   # au lieu de RegisterScreen
 # Colonnes attendues dans le CSV clinique — à adapter selon le modele
 REQUIRED_CLINICAL_COLUMNS = ["age", "sexe", "grade_tumeur"]  
 
 
 class DashboardScreen(QWidget):
-    def __init__(self):
+    def __init__(self,user_id=None, nom=None, role="user"):
         super().__init__()
+        self.user_id = user_id
+        self.nom = nom
+        self.role = role
+        self.users_button = None  # référence gardée pour pouvoir la cacher/afficher
 
         self.image_path = None
         self.clinical_path = None
@@ -113,7 +118,15 @@ class DashboardScreen(QWidget):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFixedHeight(45)
             sidebar_layout.addWidget(btn)
-
+            
+        self.users_button = QPushButton("  Gérer les utilisateurs")
+        self.users_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.users_button.setFixedHeight(45)
+        self.users_button.setStyleSheet(button_style)
+        self.users_button.clicked.connect(self.open_register)
+        self.users_button.setVisible(self.role == "admin")
+        sidebar_layout.addWidget(self.users_button)
+            
         sidebar_layout.addStretch()
 
         logout_button = QPushButton("  Déconnexion")
@@ -137,7 +150,21 @@ class DashboardScreen(QWidget):
         sidebar_layout.addWidget(logout_button)
 
         return sidebar
-
+    
+    
+    def open_register(self):
+        if self.role != "admin":
+            return  # double sécurité
+        self.register_window = ManageUsersScreen()
+        self.register_window.show()
+        
+        
+    def set_user(self, user_id, nom, role):
+        self.user_id  = user_id
+        self.nom = nom
+        self.role = role
+        if self.users_button:
+            self.users_button.setVisible(role == "admin")
     def build_content(self):
         content = QWidget()
         content_layout = QVBoxLayout()
@@ -261,7 +288,7 @@ class DashboardScreen(QWidget):
             self.clinical_path = file_path
 
         filename = os.path.basename(file_path)
-        button.setText(f" ✔ {filename}")
+        button.setText(f"  {filename}")
         button.setStyleSheet("""
             QPushButton {
                 border: 1.5px solid #2dd4bf;
@@ -357,3 +384,4 @@ if __name__ == "__main__":
     window.resize(1100, 700)
     window.show()
     sys.exit(app.exec())
+

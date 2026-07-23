@@ -69,33 +69,33 @@ class LoginScreen(QWidget):
         self.password_input.setStyleSheet(self.input_style())
         card_layout.addWidget(self.password_input)
 
-        # --- Lien "Pas de compte ?" ---
-        go_to_register = QPushButton("Pas de compte ? S'inscrire")
-        go_to_register.setMinimumWidth(180)
-        go_to_register.setCursor(
-            QCursor(Qt.CursorShape.PointingHandCursor))
+        # # --- Lien "Pas de compte ?" ---
+        # go_to_register = QPushButton("Pas de compte ? S'inscrire")
+        # go_to_register.setMinimumWidth(180)
+        # go_to_register.setCursor(
+        #     QCursor(Qt.CursorShape.PointingHandCursor))
         
-        go_to_register.setStyleSheet("""
-        QPushButton{
-            border:none;
-            background:transparent;
-            color:#d63384;
-            font-size:13px;
-        }
+        # go_to_register.setStyleSheet("""
+        # QPushButton{
+        #     border:none;
+        #     background:transparent;
+        #     color:#d63384;
+        #     font-size:13px;
+        # }
 
-        QPushButton:hover{
-            color:#a61c5d;
-            text-decoration:underline;
-            font-weight:bold;
-        }
+        # QPushButton:hover{
+        #     color:#a61c5d;
+        #     text-decoration:underline;
+        #     font-weight:bold;
+        # }
 
-        QPushButton:pressed{
-            color:#7d1647;
-        }
+        # QPushButton:pressed{
+        #     color:#7d1647;
+        # }
 
-        """)
-        go_to_register.clicked.connect(lambda: self.stack.setCurrentIndex(2))
-        card_layout.addWidget(go_to_register, alignment=Qt.AlignmentFlag.AlignRight)
+        # """)
+        # go_to_register.clicked.connect(lambda: self.stack.setCurrentIndex(2))
+        # card_layout.addWidget(go_to_register, alignment=Qt.AlignmentFlag.AlignRight)
 
         # --- Bouton Login ---
         login_button = QPushButton("Login")
@@ -107,6 +107,7 @@ class LoginScreen(QWidget):
                 border-radius: 15px;
                 padding: 10px;
                 font-weight: bold;
+                margin-top: 25px;
             }
             QPushButton:hover {
                 background-color: #8f3369;
@@ -159,7 +160,7 @@ class LoginScreen(QWidget):
 
         conn = get_connections()
         cur = conn.cursor()
-        cur.execute("SELECT password_hash FROM users WHERE email = %s", (email,))
+        cur.execute("SELECT id, nom, password_hash, role FROM users WHERE email = %s", (email,))
         result = cur.fetchone()
         cur.close()
         conn.close()
@@ -168,9 +169,11 @@ class LoginScreen(QWidget):
             QMessageBox.warning(self, "Erreur", "Email introuvable")
             return
 
-        stored_hash = result[0]
+        user_id, nom, stored_hash, role = result
         if verify_password(password, stored_hash):
             QMessageBox.information(self, "Succès", "Connexion réussie !")
+            dashboard = self.stack.widget(1)  # récupère l'instance déjà créée
+            dashboard.set_user(user_id, nom, role)
             self.stack.setCurrentIndex(1)
         else:
             QMessageBox.warning(self, "Erreur", "Mot de passe incorrect")
