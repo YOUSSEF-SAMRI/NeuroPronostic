@@ -8,10 +8,9 @@ from models.database import get_connections
 from utils.security import hash_password
 import psycopg2
 class RegisterScreen(QWidget):
-    def __init__(self, stack):
+    def __init__(self,  stack=None):
         super().__init__()
         self.stack = stack
-
         # IMPORTANT : sans ça, le background-color ne s'applique pas sur un QWidget custom
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("background-color: #e8e8e8;")
@@ -78,32 +77,32 @@ class RegisterScreen(QWidget):
         self.password_input.setStyleSheet(self.input_style())
         card_layout.addWidget(self.password_input)
 
-        # --- Lien "Deja un compte ?" ---
-        go_to_login = QPushButton("Deja un compte ?")
-        go_to_login.setMinimumWidth(160)
-        go_to_login.setCursor(
-            QCursor(Qt.CursorShape.PointingHandCursor))
-        go_to_login.setStyleSheet("""
-        QPushButton{
-            border:none;
-            background:transparent;
-            color:#d63384;
-            font-size:13px;
-        }
+        # # --- Lien "Deja un compte ?" ---
+        # go_to_login = QPushButton("Deja un compte ?")
+        # go_to_login.setMinimumWidth(160)
+        # go_to_login.setCursor(
+        #     QCursor(Qt.CursorShape.PointingHandCursor))
+        # go_to_login.setStyleSheet("""
+        # QPushButton{
+        #     border:none;
+        #     background:transparent;
+        #     color:#d63384;
+        #     font-size:13px;
+        # }
 
-        QPushButton:hover{
-            color:#a61c5d;
-            text-decoration:underline;
-            font-weight:bold;
-        }
+        # QPushButton:hover{
+        #     color:#a61c5d;
+        #     text-decoration:underline;
+        #     font-weight:bold;
+        # }
 
-        QPushButton:pressed{
-            color:#7d1647;
-        }
+        # QPushButton:pressed{
+        #     color:#7d1647;
+        # }
 
-        """)
-        go_to_login.clicked.connect(lambda: self.stack.setCurrentIndex(0))
-        card_layout.addWidget(go_to_login, alignment=Qt.AlignmentFlag.AlignRight)
+        # """)
+        # go_to_login.clicked.connect(lambda: self.stack.setCurrentIndex(0))
+        # card_layout.addWidget(go_to_login, alignment=Qt.AlignmentFlag.AlignRight)
 
         # --- Bouton Sign Up ---
         login_button = QPushButton("Sign Up")
