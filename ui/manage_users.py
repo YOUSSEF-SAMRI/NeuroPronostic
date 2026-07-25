@@ -9,9 +9,7 @@ from PyQt6.QtCore import Qt
 from models.database import get_connections
 from utils.security import hash_password
 
-# ==========================================
-# STYLESHEET (QSS) GLOBAL
-# ==========================================
+
 DARK_STYLESHEET = """
 QWidget {
     background-color: #1e1e2e;

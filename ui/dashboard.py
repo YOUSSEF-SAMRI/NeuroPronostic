@@ -9,7 +9,6 @@ import sys
 import os
 import nibabel as nib
 import pandas as pd
-# from ui.register import RegisterScreen  # adapte le chemin selon ton projet
 from ui.manage_users import ManageUsersScreen   # au lieu de RegisterScreen
 # Colonnes attendues dans le CSV clinique — à adapter selon le modele
 REQUIRED_CLINICAL_COLUMNS = ["age", "sexe", "grade_tumeur"]  
@@ -45,7 +44,7 @@ class DashboardScreen(QWidget):
     def build_sidebar(self):
         sidebar = QWidget()
         sidebar.setFixedWidth(250)
-        sidebar.setStyleSheet("background-color: #111827;")
+        sidebar.setStyleSheet("background-color: #111837;")
 
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(20, 30, 20, 20)
