@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 import sys
 import os
 import nibabel as nib
+from PyQt6.QtCore import pyqtSignal
 import pandas as pd
 from ui.manage_users import ManageUsersScreen   # au lieu de RegisterScreen
 # Colonnes attendues dans le CSV clinique — à adapter selon le modele
@@ -15,8 +16,10 @@ REQUIRED_CLINICAL_COLUMNS = ["age", "sexe", "grade_tumeur"]
 
 
 class DashboardScreen(QWidget):
-    def __init__(self,user_id=None, nom=None, role="user"):
+    logout_requested = pyqtSignal()
+    def __init__(self,stack=None,user_id=None, nom=None, role="user"):
         super().__init__()
+        self.stack = stack
         self.user_id = user_id
         self.nom = nom
         self.role = role
@@ -146,11 +149,95 @@ class DashboardScreen(QWidget):
                 color: white;
             }
         """)
+        logout_button.clicked.connect(self.handle_logout)
         sidebar_layout.addWidget(logout_button)
 
         return sidebar
     
-    
+    def handle_logout(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("Déconnexion")
+        box.setText("Voulez-vous vraiment vous déconnecter ?")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+
+        box.setStyleSheet("""
+            QMessageBox {
+                background-color: #ffffff;
+            }
+            QMessageBox QLabel {
+                color: #111827;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #f3f4f6;
+                color: #111827;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                padding: 6px 18px;
+                min-width: 70px;
+            }
+            QPushButton:hover {
+                background-color: #e5e7eb;
+            }
+            QPushButton:default {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+            }
+            QPushButton:default:hover {
+                background-color: #1d4ed8;
+            }
+        """)
+
+        answer = box.exec()
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return  # Non, X, ou Échap -> on s'arrête ici
+
+        # 1. Nettoyer la session
+        self.user_id = None
+        self.nom = None
+        self.role = "user"
+        if self.users_button:
+            self.users_button.setVisible(False)
+
+        # 2. Nettoyer les fichiers uploadés
+        self.image_path = None
+        self.clinical_path = None
+        self.update_evaluate_button()
+        self.reset_upload_buttons()
+
+        # 3. Retour au login
+        if self.stack:
+            self.stack.setCurrentIndex(0)
+
+    def reset_upload_buttons(self):
+        default_style = """
+            QPushButton {
+                border: 1.5px dashed #99f6e4;
+                border-radius: 10px;
+                padding: 30px;
+                background-color: #f0fdfa;
+                color: #0d9488;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #ccfbf1;
+                border-color: #2dd4bf;
+                color: #0f766e;
+            }
+        """
+        if hasattr(self, "image_upload_button"):
+            self.image_upload_button.setText(" Upload Images...")
+            self.image_upload_button.setStyleSheet(default_style)
+        if hasattr(self, "clinical_upload_button"):
+            self.clinical_upload_button.setText(" Upload File...")
+            self.clinical_upload_button.setStyleSheet(default_style)
+            
+            
     def open_register(self):
         if self.role != "admin":
             return  # double sécurité
@@ -164,6 +251,7 @@ class DashboardScreen(QWidget):
         self.role = role
         if self.users_button:
             self.users_button.setVisible(role == "admin")
+            
     def build_content(self):
         content = QWidget()
         content_layout = QVBoxLayout()

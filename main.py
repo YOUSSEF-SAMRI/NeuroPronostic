@@ -14,7 +14,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.stack)
 
         login = LoginScreen(self.stack)         # index 0
-        dashboard = DashboardScreen()            # index 1
+        dashboard = DashboardScreen(self.stack)            # index 1
         register = RegisterScreen(self.stack)    # index 2
 
         self.stack.addWidget(login)
@@ -22,6 +22,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(register)
 
         self.stack.setCurrentIndex(0)   # démarre sur Login
+    
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

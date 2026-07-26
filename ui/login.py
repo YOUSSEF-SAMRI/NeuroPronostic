@@ -69,34 +69,6 @@ class LoginScreen(QWidget):
         self.password_input.setStyleSheet(self.input_style())
         card_layout.addWidget(self.password_input)
 
-        # # --- Lien "Pas de compte ?" ---
-        # go_to_register = QPushButton("Pas de compte ? S'inscrire")
-        # go_to_register.setMinimumWidth(180)
-        # go_to_register.setCursor(
-        #     QCursor(Qt.CursorShape.PointingHandCursor))
-        
-        # go_to_register.setStyleSheet("""
-        # QPushButton{
-        #     border:none;
-        #     background:transparent;
-        #     color:#d63384;
-        #     font-size:13px;
-        # }
-
-        # QPushButton:hover{
-        #     color:#a61c5d;
-        #     text-decoration:underline;
-        #     font-weight:bold;
-        # }
-
-        # QPushButton:pressed{
-        #     color:#7d1647;
-        # }
-
-        # """)
-        # go_to_register.clicked.connect(lambda: self.stack.setCurrentIndex(2))
-        # card_layout.addWidget(go_to_register, alignment=Qt.AlignmentFlag.AlignRight)
-
         # --- Bouton Login ---
         login_button = QPushButton("Login")
         login_button.setStyleSheet("""
@@ -166,14 +138,47 @@ class LoginScreen(QWidget):
         conn.close()
 
         if result is None:
-            QMessageBox.warning(self, "Erreur", "Email introuvable")
+            self.show_styled_message(QMessageBox.Icon.Warning, "Erreur", "Email introuvable")
             return
 
         user_id, nom, stored_hash, role = result
         if verify_password(password, stored_hash):
-            QMessageBox.information(self, "Succès", "Connexion réussie !")
+            self.show_styled_message(QMessageBox.Icon.Information, "Succès", "Connexion réussie !")
             dashboard = self.stack.widget(1)  # récupère l'instance déjà créée
             dashboard.set_user(user_id, nom, role)
             self.stack.setCurrentIndex(1)
         else:
-            QMessageBox.warning(self, "Erreur", "Mot de passe incorrect")
+            self.show_styled_message(QMessageBox.Icon.Warning, "Erreur", "Mot de passe incorrect")
+            
+    def show_styled_message(self, icon, title, text):
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setIcon(icon)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+
+        box.setStyleSheet("""
+            QMessageBox {
+                background-color: #ffffff;
+            }
+            QMessageBox QLabel {
+                color: #1f2937;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #9c2f66;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 24px;
+                min-width: 70px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #7d2452;
+            }
+            QPushButton:pressed {
+                background-color: #6b1f46;
+            }
+        """)
+        box.exec()
