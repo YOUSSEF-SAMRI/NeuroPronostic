@@ -12,12 +12,10 @@ class LoginScreen(QWidget):
     def __init__(self, stack):
         super().__init__()
         self.stack = stack
-
-        # IMPORTANT : sans ça, le background-color ne s'applique pas sur un QWidget custom
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("background-color: #e8e8e8;")
 
-        # --- La "carte" blanche centrée ---
+        # La "carte" blanche centree
         card = QWidget()
         card.setObjectName("card")   # nom unique pour cibler UNIQUEMENT ce widget
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -33,7 +31,7 @@ class LoginScreen(QWidget):
         card_layout.setContentsMargins(40, 30, 40, 30)
         card_layout.setSpacing(15)
 
-        # --- Logo (pas de bordure) ---
+        # Logo  
         logo = QLabel()
         pixmap = QPixmap("assets/logo.png")
         logo.setPixmap(pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio,
@@ -42,13 +40,13 @@ class LoginScreen(QWidget):
         logo.setStyleSheet("border: none; background: transparent;")
         card_layout.addWidget(logo)
 
-        # --- Titre ---
+        #  Titre 
         title = QLabel("Brain tumor detection")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("border: none; background: transparent; font-size: 16px; font-weight: bold; color: #2e7d32;")
         card_layout.addWidget(title)
 
-        # --- Champ Email ---
+        #  Champ Email 
         email_label = QLabel("Email")
         email_label.setStyleSheet("border: none; background: transparent; color: #444;")
         card_layout.addWidget(email_label)
@@ -58,7 +56,7 @@ class LoginScreen(QWidget):
         self.email_input.setStyleSheet(self.input_style())
         card_layout.addWidget(self.email_input)
 
-        # --- Champ Mot de passe ---
+        #  Champ Mot de passe 
         password_label = QLabel("Password")
         password_label.setStyleSheet("border: none; background: transparent; color: #333;")
         card_layout.addWidget(password_label)
@@ -69,7 +67,7 @@ class LoginScreen(QWidget):
         self.password_input.setStyleSheet(self.input_style())
         card_layout.addWidget(self.password_input)
 
-        # --- Bouton Login ---
+        #  Bouton Login 
         login_button = QPushButton("Login")
         login_button.setStyleSheet("""
             QPushButton {
@@ -90,7 +88,7 @@ class LoginScreen(QWidget):
 
         card.setLayout(card_layout)
 
-        # --- Centrer la carte dans la fenêtre ---
+        #  Centrer la carte dans la fenêtre 
         outer_layout = QVBoxLayout()
         outer_layout.addStretch()
         h_layout = QHBoxLayout()
@@ -144,7 +142,7 @@ class LoginScreen(QWidget):
         user_id, nom, stored_hash, role = result
         if verify_password(password, stored_hash):
             self.show_styled_message(QMessageBox.Icon.Information, "Succès", "Connexion réussie !")
-            dashboard = self.stack.widget(1)  # récupère l'instance déjà créée
+            dashboard = self.stack.widget(1) 
             dashboard.set_user(user_id, nom, role)
             self.stack.setCurrentIndex(1)
         else:
@@ -158,9 +156,7 @@ class LoginScreen(QWidget):
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
 
         box.setStyleSheet("""
-            QMessageBox {
-                background-color: #ffffff;
-            }
+            
             QMessageBox QLabel {
                 color: #1f2937;
                 font-size: 14px;

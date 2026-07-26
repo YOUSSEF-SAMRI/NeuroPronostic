@@ -10,9 +10,11 @@ import os
 import nibabel as nib
 from PyQt6.QtCore import pyqtSignal
 import pandas as pd
-from ui.manage_users import ManageUsersScreen   # au lieu de RegisterScreen
-# Colonnes attendues dans le CSV clinique — à adapter selon le modele
-REQUIRED_CLINICAL_COLUMNS = ["age", "sexe", "grade_tumeur"]  
+from ui.manage_users import ManageUsersScreen 
+
+
+
+REQUIRED_CLINICAL_COLUMNS = ["nom","age", "sexe", "grade_tumeur"]  
 
 
 class DashboardScreen(QWidget):
@@ -23,7 +25,7 @@ class DashboardScreen(QWidget):
         self.user_id = user_id
         self.nom = nom
         self.role = role
-        self.users_button = None  # référence gardée pour pouvoir la cacher/afficher
+        self.users_button = None  
 
         self.image_path = None
         self.clinical_path = None
@@ -163,9 +165,6 @@ class DashboardScreen(QWidget):
         box.setDefaultButton(QMessageBox.StandardButton.No)
 
         box.setStyleSheet("""
-            QMessageBox {
-                background-color: #ffffff;
-            }
             QMessageBox QLabel {
                 color: #111827;
                 font-size: 14px;
@@ -194,22 +193,22 @@ class DashboardScreen(QWidget):
         answer = box.exec()
 
         if answer != QMessageBox.StandardButton.Yes:
-            return  # Non, X, ou Échap -> on s'arrête ici
+            return 
 
-        # 1. Nettoyer la session
+        # Nettoyer la session
         self.user_id = None
         self.nom = None
         self.role = "user"
         if self.users_button:
             self.users_button.setVisible(False)
 
-        # 2. Nettoyer les fichiers uploadés
+        # Nettoyer les fichiers uploadés
         self.image_path = None
         self.clinical_path = None
         self.update_evaluate_button()
         self.reset_upload_buttons()
 
-        # 3. Retour au login
+        # Retour au login
         if self.stack:
             self.stack.setCurrentIndex(0)
 
@@ -240,7 +239,7 @@ class DashboardScreen(QWidget):
             
     def open_register(self):
         if self.role != "admin":
-            return  # double sécurité
+            return 
         self.register_window = ManageUsersScreen()
         self.register_window.show()
         
@@ -366,8 +365,8 @@ class DashboardScreen(QWidget):
             ok, message = self.validate_clinical(file_path)
 
         if not ok:
-            QMessageBox.critical(self, "Fichier invalide", message)
-            return  # on n'accepte pas le fichier, self.image_path/clinical_path restent inchangés
+            self.show_error_message("Fichier invalide", message)
+            return 
 
         if key == "image":
             self.image_path = file_path
@@ -389,6 +388,38 @@ class DashboardScreen(QWidget):
         """)
 
         self.update_evaluate_button()
+    def show_error_message(self, title, text):
+        box = QMessageBox(self)          # <-- on construit l'objet nous-mêmes
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+
+        box.setStyleSheet("""
+            QMessageBox {
+                min-width: 350px;
+            }
+            QMessageBox QLabel {
+                color: #1f2937;
+                font-size: 13px;
+            }
+            QPushButton {
+                background-color: #f87171;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 24px;
+                min-width: 70px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #ef4444;
+            }
+            QPushButton:pressed {
+                background-color: #dc2626;
+            }
+        """)
+        box.exec()
 
     def validate_image(self, file_path):
         """Vérifie que le fichier NIFTI est lisible et exploitable."""
@@ -405,7 +436,6 @@ class DashboardScreen(QWidget):
         if data.size == 0:
             return False, "L'image est vide."
 
-        # Volume entièrement à zéro = scan probablement vide/corrompu
         if not (data != 0).any():
             return False, "L'image ne contient que des zéros (scan vide ou corrompu)."
 
@@ -425,7 +455,6 @@ class DashboardScreen(QWidget):
         if missing_columns:
             return False, "Colonnes manquantes dans le CSV :\n- " + "\n- ".join(missing_columns)
 
-        # Vérifie les valeurs manquantes uniquement sur les colonnes requises
         na_report = df[REQUIRED_CLINICAL_COLUMNS].isna().sum()
         na_report = na_report[na_report > 0]
         if not na_report.empty:
