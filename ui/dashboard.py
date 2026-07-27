@@ -8,17 +8,51 @@ from PyQt6.QtCore import Qt
 import sys
 import os
 import nibabel as nib
-from PyQt6.QtCore import pyqtSignal
 import pandas as pd
 from ui.manage_users import ManageUsersScreen 
 
 
 
-REQUIRED_CLINICAL_COLUMNS = ["nom","age", "sexe", "grade_tumeur"]  
+REQUIRED_CLINICAL_COLUMNS = [
+                            "Center",
+                            "Sex",
+                            "Age",
+                            "Atrial fibrillation",
+                            "Hypertension",
+                            "Diabetes",
+                            "Hyperlipidemia",
+                            "Anticoagulation",
+                            "Lipid lowering drugs",
+                            "PAIs",
+                            "Glucose",
+                            "Leucocytes",
+                            "CRP",
+                            "INR",
+                            "Wake-up",
+                            "In-House",
+                            "Referral",
+                            "Onset to door",
+                            "Alert to door",
+                            "NIHSS at admission",
+                            "mRS at admission",
+                            "mRS premorbid",
+                            "Door to imaging",
+                            "Door to groin",
+                            "Door to first series",
+                            "Time of intervention",
+                            "Door to recanalization",
+                            ]  
+STRICTLY_REQUIRED_COLUMNS = [
+    "Age",
+    "Sex",
+    "NIHSS at admission",
+    "mRS premorbid",
+    # ajoute ici uniquement les champs qui doivent TOUJOURS être présents
+    # (à confirmer avec encadrent)
+]
 
 
 class DashboardScreen(QWidget):
-    logout_requested = pyqtSignal()
     def __init__(self,stack=None,user_id=None, nom=None, role="user"):
         super().__init__()
         self.stack = stack
@@ -348,6 +382,11 @@ class DashboardScreen(QWidget):
         """)
         upload_button.clicked.connect(lambda: self.select_file(upload_button, file_filter, key))
 
+        if key == "image":
+            self.image_upload_button = upload_button
+        elif key == "clinical":
+            self.clinical_upload_button = upload_button
+            
         card_layout.addWidget(label)
         card_layout.addWidget(upload_button)
 
@@ -388,8 +427,10 @@ class DashboardScreen(QWidget):
         """)
 
         self.update_evaluate_button()
+        
+        
     def show_error_message(self, title, text):
-        box = QMessageBox(self)          # <-- on construit l'objet nous-mêmes
+        box = QMessageBox(self)          
         box.setWindowTitle(title)
         box.setText(text)
         box.setIcon(QMessageBox.Icon.Critical)
@@ -444,7 +485,7 @@ class DashboardScreen(QWidget):
     def validate_clinical(self, file_path):
         """Vérifie que le CSV a les bonnes colonnes et pas de données manquantes critiques."""
         try:
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path,sep=None, engine="python")
         except Exception as e:
             return False, f"Impossible de lire le fichier CSV :\n{e}"
 
@@ -455,13 +496,25 @@ class DashboardScreen(QWidget):
         if missing_columns:
             return False, "Colonnes manquantes dans le CSV :\n- " + "\n- ".join(missing_columns)
 
-        na_report = df[REQUIRED_CLINICAL_COLUMNS].isna().sum()
+        # Bloquant : seulement les champs strictement nécessaires
+        critical_na = df[STRICTLY_REQUIRED_COLUMNS].isna().sum()
+        critical_na = critical_na[critical_na > 0]
+        if not critical_na.empty:
+            details = "\n".join(f"- {col} : {count} valeur(s) manquante(s)" for col, count in critical_na.items())
+            return False, f"Données critiques manquantes :\n{details}"
+        
+        # Non-bloquant : le reste, juste un avertissement
+        other_columns = [c for c in REQUIRED_CLINICAL_COLUMNS if c not in STRICTLY_REQUIRED_COLUMNS]
+        na_report = df[other_columns].isna().sum()
         na_report = na_report[na_report > 0]
+        warning = ""
         if not na_report.empty:
             details = "\n".join(f"- {col} : {count} valeur(s) manquante(s)" for col, count in na_report.items())
-            return False, f"Données manquantes détectées :\n{details}"
+            warning = f"Attention, données secondaires manquantes (l'upload continue quand même) :\n{details}"
 
-        return True, ""
+        return True, warning
+
+
 
     def update_evaluate_button(self):
         ready = self.image_path is not None and self.clinical_path is not None
