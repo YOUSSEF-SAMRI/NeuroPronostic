@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QFrame, QFileDialog,
     QGraphicsDropShadowEffect, QMessageBox
 )
+from PyQt6.QtWidgets import QStackedWidget
 from PyQt6.QtGui import QPixmap, QColor
 from PyQt6.QtCore import Qt
 import sys
@@ -11,8 +12,9 @@ import nibabel as nib
 import pandas as pd
 import numpy as np
 from ui.manage_users import ManageUsersScreen 
-
-
+from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+from ui.patient_dialog import AddPatientDialog
+from models.patients import add_patient, get_patients_by_medecin
 
 REQUIRED_CLINICAL_COLUMNS = [
                             "Center",
@@ -72,11 +74,15 @@ class DashboardScreen(QWidget):
         main_layout.setSpacing(0)
 
         sidebar = self.build_sidebar()
-        content = self.build_content()
+        self.content_stack = QStackedWidget()
+        self.dashboard_page = self.build_content()          # page existante (index 0)
+        self.patients_page = self.build_patients_page()      # nouvelle page (index 1)
 
+        self.content_stack.addWidget(self.dashboard_page)
+        self.content_stack.addWidget(self.patients_page)
+        
         main_layout.addWidget(sidebar)
-        main_layout.addWidget(content)
-
+        main_layout.addWidget(self.content_stack)
         self.setLayout(main_layout)
 
     def build_sidebar(self):
@@ -150,6 +156,10 @@ class DashboardScreen(QWidget):
         historique_button.setStyleSheet(button_style)
         patients_button.setStyleSheet(button_style)
         settings_button.setStyleSheet(button_style)
+        
+        self.button_style = button_style
+        self.active_button_style = active_button_style
+        self.nav_buttons = [dashboard_button, historique_button, patients_button, settings_button]
 
         for btn in (dashboard_button, historique_button, patients_button, settings_button):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -184,11 +194,23 @@ class DashboardScreen(QWidget):
                 color: white;
             }
         """)
+        dashboard_button.clicked.connect(lambda: self.switch_page(0, dashboard_button))
+        patients_button.clicked.connect(lambda: self.switch_page(1, patients_button))
         logout_button.clicked.connect(self.handle_logout)
         sidebar_layout.addWidget(logout_button)
 
         return sidebar
     
+    def switch_page(self, index, active_button):
+        self.content_stack.setCurrentIndex(index)
+
+        for btn in self.nav_buttons:
+            btn.setStyleSheet(self.button_style)
+        active_button.setStyleSheet(self.active_button_style)
+
+        if index == 1:  # page Patients
+            self.load_patients()
+        
     def handle_logout(self):
         box = QMessageBox(self)
         box.setWindowTitle("Déconnexion")
@@ -390,6 +412,121 @@ class DashboardScreen(QWidget):
         card_layout.addWidget(upload_button)
 
         return card
+    
+    
+    def build_patients_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(60, 50, 60, 50)
+        layout.setSpacing(20)
+        page.setLayout(layout)
+
+        header_layout = QHBoxLayout()
+        title = QLabel("Mes patients")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #374151;")
+
+        add_button = QPushButton("  Ajouter un patient")
+        add_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_button.setFixedHeight(40)
+        add_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 18px;
+                font-weight: 600;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+        """)
+        add_button.clicked.connect(self.open_add_patient_dialog)
+
+        
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        header_layout.addWidget(add_button)
+        layout.addLayout(header_layout)
+
+        # --- État vide ---
+        self.empty_state_label = QLabel("Aucun patient pour l'instant.\nCliquez sur \"Ajouter un patient\" pour commencer.")
+        self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_state_label.setStyleSheet("color: #9ca3af; font-size: 14px; padding: 80px 0;")
+
+        # --- Tableau (caché par défaut) ---
+        self.patients_table = QTableWidget()
+        self.patients_table.setColumnCount(5)
+        self.patients_table.setHorizontalHeaderLabels(["Nom", "Prénom", "Âge", "Sexe", "Date d'ajout"])
+        self.patients_table.horizontalHeader().setStretchLastSection(True)
+        self.patients_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.patients_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.patients_table.setStyleSheet("""
+    QTableWidget {
+        background-color: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        gridline-color: #f3f4f6;
+    }
+    QTableWidget::item {
+        color: #111827;
+        padding: 8px;
+        border: none;
+    }
+QTableWidget::item:selected {
+    background-color: #f3f4f6;
+    color: #111827;
+    outline: none;
+
+}
+    QHeaderView::section {
+        background-color: #f9fafb;
+        color: #374151;
+        font-weight: 600;
+        padding: 8px;
+        border: none;
+        border-bottom: 1px solid #e5e7eb;
+    }
+""")
+        self.patients_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.patients_table.setVisible(False)
+
+        layout.addWidget(self.empty_state_label)
+        layout.addWidget(self.patients_table)
+
+        return page
+    
+    def refresh_patients_display(self, patients=None):
+        """patients: liste de tuples venant de la DB. None ou [] = aucun patient."""
+        if not patients:
+            self.empty_state_label.setVisible(True)
+            self.patients_table.setVisible(False)
+        else:
+            self.empty_state_label.setVisible(False)
+            self.patients_table.setVisible(True)
+
+    def open_add_patient_dialog(self):
+        dialog = AddPatientDialog(self)
+        if dialog.exec():
+            data = dialog.get_data()
+            try:
+                add_patient(self.user_id, data["nom"], data["prenom"], data["age"], data["sexe"])
+                self.load_patients()
+            except Exception as e:
+                self.show_error_message("Erreur", f"Impossible d'ajouter le patient :\n{e}")
+                
+    def load_patients(self):
+        patients = get_patients_by_medecin(self.user_id)
+        self.refresh_patients_display(patients)
+
+        self.patients_table.setRowCount(len(patients))
+        for row, (id_, nom, prenom, age, sexe, created_at) in enumerate(patients):
+            self.patients_table.setItem(row, 0, QTableWidgetItem(nom))
+            self.patients_table.setItem(row, 1, QTableWidgetItem(prenom))
+            self.patients_table.setItem(row, 2, QTableWidgetItem(str(age)))
+            self.patients_table.setItem(row, 3, QTableWidgetItem(sexe))
+            self.patients_table.setItem(row, 4, QTableWidgetItem(created_at.strftime("%d/%m/%Y")))
 
     def select_file(self, button, file_filter, key):
         file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "", file_filter)
@@ -416,16 +553,16 @@ class DashboardScreen(QWidget):
         filename = os.path.basename(file_path)
         button.setText(f"  {filename}")
         button.setStyleSheet("""
-            QPushButton {
-                border: 1.5px solid #2dd4bf;
-                border-radius: 10px;
-                padding: 30px;
-                background-color: #ccfbf1;
-                color: #0f766e;
-                font-size: 13px;
-                font-weight: 600;
-            }
-        """)
+                QPushButton {
+                    border: 1.5px solid #2dd4bf;
+                    border-radius: 10px;
+                    padding: 30px;
+                    background-color: #ccfbf1;
+                    color: #0f766e;
+                    font-size: 13px;
+                    font-weight: 600;
+                }
+            """)
 
         self.update_evaluate_button()
         
