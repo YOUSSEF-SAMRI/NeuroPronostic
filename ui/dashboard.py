@@ -9,6 +9,7 @@ import sys
 import os
 import nibabel as nib
 import pandas as pd
+import numpy as np
 from ui.manage_users import ManageUsersScreen 
 
 
@@ -43,13 +44,11 @@ REQUIRED_CLINICAL_COLUMNS = [
                             "Door to recanalization",
                             ]  
 STRICTLY_REQUIRED_COLUMNS = [
-    "Age",
-    "Sex",
-    "NIHSS at admission",
-    "mRS premorbid",
-    # ajoute ici uniquement les champs qui doivent TOUJOURS être présents
-    # (à confirmer avec encadrent)
-]
+                            "Age",
+                            "Sex",
+                            "NIHSS at admission",
+                            "mRS premorbid",
+                            ]
 
 
 class DashboardScreen(QWidget):
@@ -406,6 +405,8 @@ class DashboardScreen(QWidget):
         if not ok:
             self.show_error_message("Fichier invalide", message)
             return 
+        if message:  # warning non-bloquant (données secondaires manquantes)
+            self.show_warning_message("Attention", message)
 
         if key == "image":
             self.image_path = file_path
@@ -428,6 +429,27 @@ class DashboardScreen(QWidget):
 
         self.update_evaluate_button()
         
+    def show_warning_message(self, title, text):
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.setStyleSheet("""
+            QMessageBox { min-width: 350px; }
+            QMessageBox QLabel { color: #1f2937; font-size: 13px; }
+            QPushButton {
+                background-color: #f59e0b;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 24px;
+                min-width: 70px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #d97706; }
+        """)
+        box.exec()    
         
     def show_error_message(self, title, text):
         box = QMessageBox(self)          
@@ -469,13 +491,17 @@ class DashboardScreen(QWidget):
         except Exception as e:
             return False, f"Impossible de lire le fichier NIFTI :\n{e}"
 
+        # Check dimensions sans charger les données en mémoire
+        shape = img.shape
+        if len(shape) not in (3, 4):
+            return False, f"Dimension inattendue : {len(shape)}D (3D ou 4D attendu)."
+        if any(d < 10 for d in shape[:3]):
+            return False, f"Résolution trop faible : {shape[:3]} (minimum 10x10x10 attendu)."
+
         data = img.get_fdata()
 
-        if data.ndim not in (3, 4):
-            return False, f"Dimension inattendue : {data.ndim}D (3D ou 4D attendu)."
-
-        if data.size == 0:
-            return False, "L'image est vide."
+        if not np.isfinite(data).all():
+            return False, "L'image contient des valeurs invalides (NaN/Inf) — scan probablement corrompu."
 
         if not (data != 0).any():
             return False, "L'image ne contient que des zéros (scan vide ou corrompu)."
@@ -536,7 +562,7 @@ class DashboardScreen(QWidget):
         if not self.image_path or not self.clinical_path:
             return
         print(f"Analyse en cours : {self.image_path} + {self.clinical_path}")
-        # branche ici ton pipeline (chargement NIFTI, lecture CSV, appel au modèle)
+        # branche ici le pipeline (chargement NIFTI, lecture CSV, appel au modèle)
 
     def _make_shadow(self):
         shadow = QGraphicsDropShadowEffect()

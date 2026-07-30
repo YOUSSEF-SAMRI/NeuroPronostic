@@ -239,7 +239,7 @@ class ManageUsersScreen(QWidget):
 
         self.load_users()
 
-    # ---------- READ ----------
+    #  read mn DB
     def load_users(self):
         try:
             conn = get_connections()
@@ -273,7 +273,7 @@ class ManageUsersScreen(QWidget):
             "role": self.table.item(row, 3).text(),
         }
 
-    # ---------- CREATE ----------
+    # create
     def add_user(self):
         dialog = UserFormDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -306,7 +306,7 @@ class ManageUsersScreen(QWidget):
         QMessageBox.information(self, "Succès", "Utilisateur ajouté.")
         self.load_users()
 
-    # ---------- UPDATE ----------
+    # update
     def edit_user(self):
         selected = self.get_selected_user()
         if not selected:
@@ -350,7 +350,7 @@ class ManageUsersScreen(QWidget):
         QMessageBox.information(self, "Succès", "Utilisateur modifié.")
         self.load_users()
 
-    # ---------- DELETE ----------
+    # delete
     def delete_user(self):
         selected = self.get_selected_user()
         if not selected:
