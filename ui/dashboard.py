@@ -3,8 +3,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QFrame, QFileDialog,
     QGraphicsDropShadowEffect, QMessageBox
 )
+from PyQt6.QtWidgets import QDialog, QSlider, QComboBox
+from PyQt6.QtWidgets import QScrollArea
 from PyQt6.QtWidgets import QStackedWidget
-from PyQt6.QtGui import QPixmap, QColor
+from PyQt6.QtGui import QPixmap, QColor ,QImage
 from PyQt6.QtCore import Qt
 import sys
 import os
@@ -15,6 +17,7 @@ from ui.manage_users import ManageUsersScreen
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
 from ui.patient_dialog import AddPatientDialog
 from models.patients import add_patient, get_patients_by_medecin
+
 
 REQUIRED_CLINICAL_COLUMNS = [
                             "Center",
@@ -60,7 +63,8 @@ class DashboardScreen(QWidget):
         self.user_id = user_id
         self.nom = nom
         self.role = role
-        self.users_button = None  
+        self.users_button = None 
+         
         
         self.all_patients = []
         self.current_page = 1
@@ -69,6 +73,9 @@ class DashboardScreen(QWidget):
         self.image_path = None
         self.clinical_path = None
         self.evaluate_button = None
+        
+        self.patient_uploads = {}   # {patient_id: {"image": path_or_None, "clinical": path_or_None}}
+        self.current_patient = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("background-color: #f4f5f7;")
@@ -84,6 +91,9 @@ class DashboardScreen(QWidget):
 
         self.content_stack.addWidget(self.dashboard_page)
         self.content_stack.addWidget(self.patients_page)
+        
+        self.patient_detail_page = self.build_patient_detail_page()   # ← nouvelle ligne
+        self.content_stack.addWidget(self.patient_detail_page)
         
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.content_stack)
@@ -295,6 +305,30 @@ class DashboardScreen(QWidget):
             self.clinical_upload_button.setText(" Upload File...")
             self.clinical_upload_button.setStyleSheet(default_style)
             
+    def reset_patient_upload_buttons(self):
+        default_style = """
+            QPushButton {
+                border: 1.5px dashed #99f6e4;
+                border-radius: 10px;
+                padding: 30px;
+                background-color: #f0fdfa;
+                color: #0d9488;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #ccfbf1;
+                border-color: #2dd4bf;
+                color: #0f766e;
+            }
+        """
+        if hasattr(self, "patient_image_upload_button"):
+            self.patient_image_upload_button.setText(" Upload Images...")
+            self.patient_image_upload_button.setStyleSheet(default_style)
+        if hasattr(self, "patient_clinical_upload_button"):
+            self.patient_clinical_upload_button.setText(" Upload File...")
+            self.patient_clinical_upload_button.setStyleSheet(default_style)
+            
             
     def open_register(self):
         if self.role != "admin":
@@ -364,9 +398,10 @@ class DashboardScreen(QWidget):
 
         return content
 
-    def create_upload_card(self, label_text, button_text, file_filter, key):
+    def create_upload_card(self, label_text, button_text, file_filter, key ,scope="dashboard"):
         card = QFrame()
-        card.setFixedHeight(270)
+        if scope == "dashboard":
+            card.setFixedHeight(270)
         card.setStyleSheet("""
             QFrame {
                 background-color: white;
@@ -388,32 +423,61 @@ class DashboardScreen(QWidget):
 
         upload_button = QPushButton(f" {button_text}")
         upload_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        upload_button.setMinimumHeight(120)
+        upload_button.setMinimumHeight(100)
         upload_button.setStyleSheet("""
             QPushButton {
-                border: 1.5px dashed #99f6e4;
-                border-radius: 10px;
-                padding: 30px;
-                background-color: #f0fdfa;
-                color: #0d9488;
-                font-size: 13px;
-                font-weight: 500;
+                border: 1.5px dashed #99f6e4; border-radius: 10px; padding: 24px;
+                background-color: #f0fdfa; color: #0d9488; font-size: 13px; font-weight: 500;
             }
-            QPushButton:hover {
-                background-color: #ccfbf1;
-                border-color: #2dd4bf;
-                color: #0f766e;
-            }
+            QPushButton:hover { background-color: #ccfbf1; border-color: #2dd4bf; color: #0f766e; }
         """)
-        upload_button.clicked.connect(lambda: self.select_file(upload_button, file_filter, key))
+        upload_button.clicked.connect(lambda: self.select_file(upload_button, file_filter, key, scope))
+        
+        preview_label = QLabel("")
+        preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_label.setFixedHeight(170)
+        preview_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        preview_label.setVisible(False)
+        
+        view_button = QPushButton(" Visualiser")
+        view_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        view_button.setStyleSheet("""
+            QPushButton {
+                background-color: #eff6ff;
+                color: #2563eb;
+                border: 1px solid #bfdbfe;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #dbeafe; }
+        """)
+        view_button.setVisible(False)
+        card_layout.addWidget(view_button)
 
-        if key == "image":
-            self.image_upload_button = upload_button
-        elif key == "clinical":
-            self.clinical_upload_button = upload_button
-            
         card_layout.addWidget(label)
         card_layout.addWidget(upload_button)
+        card_layout.addWidget(preview_label)
+            
+        if scope == "dashboard":
+            if key == "image":
+                self.image_upload_button = upload_button
+            elif key == "clinical":
+                self.clinical_upload_button = upload_button
+        else:  # scope == "patient"
+            view_button.clicked.connect(lambda: self.open_viewer(key))
+            if key == "image":
+                self.patient_image_upload_button = upload_button
+                self.patient_image_preview = preview_label
+                self.patient_image_view_button = view_button
+            elif key == "clinical":
+                self.patient_clinical_upload_button = upload_button
+                self.patient_clinical_preview = preview_label
+                self.patient_clinical_view_button = view_button
+
+            
+        
 
         return card
     
@@ -727,59 +791,86 @@ class DashboardScreen(QWidget):
         
     def show_patient_details(self, patient):
         id_, nom, prenom, age, sexe, created_at = patient
+        self.current_patient = patient
 
-        box = QMessageBox(self)
-        box.setWindowTitle("Détails du patient")
-        box.setText(
-            f"<b>Nom :</b> {nom}<br>"
-            f"<b>Prénom :</b> {prenom}<br>"
-            f"<b>Âge :</b> {age}<br>"
-            f"<b>Sexe :</b> {sexe}<br>"
-            f"<b>Date d'ajout :</b> {created_at.strftime('%d/%m/%Y')}"
-        )
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        box.setStyleSheet("""
-            QMessageBox QLabel {
-                color: #111827;
-                font-size: 13px;
-            }
-            QPushButton {
-            background-color: #2563eb;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 6px 18px;
-            min-width: 70px;
-            font-weight: 600;
-        }
-        QPushButton:hover {
-            background-color: #1d4ed8;
-        }
+        initials = (nom[:1] + prenom[:1]).upper() if nom and prenom else "?"
+        self.patient_avatar_label.setText(initials)
+        self.patient_name_label.setText(f"{nom} {prenom}")
+        self.patient_age_badge.setText(f"{age} ans")
+        self.patient_sexe_badge.setText("Femme" if sexe == "F" else "Homme")
+        self.patient_date_badge.setText(created_at.strftime("%d/%m/%Y"))
+
+        self.reset_patient_upload_buttons()
+        self.patient_image_preview.setVisible(False)
+        self.patient_clinical_preview.setVisible(False)
+
+        uploads = self.patient_uploads.get(id_, {"image": None, "clinical": None})
+        self.patient_image_view_button.setVisible(bool(uploads["image"]))
+        self.patient_clinical_view_button.setVisible(bool(uploads["clinical"]))
+        if uploads["image"]:
+            self.patient_image_upload_button.setText(f"  {os.path.basename(uploads['image'])}")
+            self.show_image_preview(uploads["image"])
+        if uploads["clinical"]:
+            self.patient_clinical_upload_button.setText(f"  {os.path.basename(uploads['clinical'])}")
+            self.show_clinical_preview(uploads["clinical"])
+
+        self.update_patient_evaluate_button()
+        self.content_stack.setCurrentIndex(2)
+        
+    def update_patient_evaluate_button(self):
+        pid = self.current_patient[0] if self.current_patient else None
+        uploads = self.patient_uploads.get(pid, {})
+        ready = bool(uploads.get("image") and uploads.get("clinical"))
+        self.patient_evaluate_button.setEnabled(ready)
+        self.patient_evaluate_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {"#2563eb" if ready else "#6b7280"};
+                color: white;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {"#1d4ed8" if ready else "#4b5563"};
+            }}
         """)
-        box.exec()
+    
+    def run_patient_evaluation(self):
+        pid = self.current_patient[0]
+        uploads = self.patient_uploads[pid]
+        print(f"Analyse patient {pid} : {uploads['image']} + {uploads['clinical']}")
+        # -> ici tu branches ton pipeline, puis tu affiches le résultat dans self.patient_result_area
 
-    def select_file(self, button, file_filter, key):
+    def select_file(self, button, file_filter, key , scope="dashboard"):
         file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "", file_filter)
         if not file_path:
             return
-
-        # verifie le format 
-        if key == "image":
-            ok, message = self.validate_image(file_path)
-        else:
-            ok, message = self.validate_clinical(file_path)
-
+        ok, message = self.validate_image(file_path) if key == "image" else self.validate_clinical(file_path)
+        
         if not ok:
             self.show_error_message("Fichier invalide", message)
             return 
         if message:  # warning non-bloquant (données secondaires manquantes)
             self.show_warning_message("Attention", message)
+            
+        if scope == "dashboard":
+            if key == "image":
+                self.image_path = file_path
+            else:
+                self.clinical_path = file_path
+            self.update_evaluate_button()
+        else:  # patient
+            pid = self.current_patient[0]
+            self.patient_uploads.setdefault(pid, {"image": None, "clinical": None})
+            self.patient_uploads[pid][key] = file_path
+            self.update_patient_evaluate_button()
+            if key == "image":
+                self.show_image_preview(file_path)
+                self.patient_image_view_button.setVisible(True)   # ← ligne à ajouter
 
-        if key == "image":
-            self.image_path = file_path
-        elif key == "clinical":
-            self.clinical_path = file_path
+            else:
+                self.show_clinical_preview(file_path)
+                self.patient_clinical_view_button.setVisible(True)
 
         filename = os.path.basename(file_path)
         button.setText(f"  {filename}")
@@ -939,8 +1030,337 @@ class DashboardScreen(QWidget):
         shadow.setYOffset(4)
         shadow.setColor(QColor(0, 0, 0, 25))
         return shadow
+    
+    
+    def build_patient_detail_page(self):
+        content = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(60, 40, 60, 50)
+        layout.setSpacing(20)
+        content.setLayout(layout)
+
+        # --- Header : retour + infos patient ---
+        top_bar = QHBoxLayout()
+        back_button = QPushButton("←  Retour")
+        back_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_button.setStyleSheet("""
+            QPushButton {
+                background: none; border: none; color: #2563eb;
+                font-size: 13px; font-weight: 600; text-align: left;
+            }
+            QPushButton:hover { color: #1d4ed8; }
+        """)
+        back_button.clicked.connect(lambda: self.content_stack.setCurrentIndex(1))
+        top_bar.addWidget(back_button)
+        top_bar.addStretch()
+        layout.addLayout(top_bar)
+
+        # --- Carte info patient ---
+        info_card = QFrame()
+        info_card.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 14px;
+            }
+        """)
+        info_card.setGraphicsEffect(self._make_shadow())
+        info_layout = QHBoxLayout()
+        info_layout.setContentsMargins(28, 24, 28, 24)
+        info_layout.setSpacing(20)
+        info_card.setLayout(info_layout)
+
+        self.patient_avatar_label = QLabel("")
+        self.patient_avatar_label.setFixedSize(64, 64)
+        self.patient_avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.patient_avatar_label.setStyleSheet("""
+            QLabel {
+                background-color: #2563eb;
+                color: white;
+                border-radius: 32px;
+                border: none;
+                font-size: 20px;
+                font-weight: bold;
+            }
+        """)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(10)
+        text_col.setContentsMargins(0, 0, 0, 0)
+
+        self.patient_name_label = QLabel("")
+        self.patient_name_label.setStyleSheet("""
+            QLabel {
+                font-size: 20px;
+                font-weight: 700;
+                color: #111827;
+                border: none;
+                background: transparent;
+            }
+        """)
+
+        badges_row = QHBoxLayout()
+        badges_row.setSpacing(8)
+        badges_row.setContentsMargins(0, 0, 0, 0)
+
+        badge_specs = [
+            ("age", "#eff6ff", "#2563eb"),
+            ("sexe", "#fdf2f8", "#db2777"),
+            ("date", "#f3f4f6", "#4b5563"),
+        ]
+
+        badge_labels = {}
+        for key, bg, fg in badge_specs:
+            badge = QLabel("")
+            badge.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {bg};
+                    color: {fg};
+                    border: none;
+                    border-radius: 11px;
+                    padding: 4px 12px;
+                    font-size: 11.5px;
+                    font-weight: 600;
+                }}
+            """)
+            badges_row.addWidget(badge)
+            badge_labels[key] = badge
+
+        badges_row.addStretch()
+
+        self.patient_age_badge = badge_labels["age"]
+        self.patient_sexe_badge = badge_labels["sexe"]
+        self.patient_date_badge = badge_labels["date"]
+
+        text_col.addWidget(self.patient_name_label)
+        text_col.addLayout(badges_row)
+
+        info_layout.addWidget(self.patient_avatar_label)
+        info_layout.addLayout(text_col, stretch=1)
+        layout.addWidget(info_card)
+
+        # --- Cartes upload (réutilise create_upload_card) ---
+        cards_layout = QHBoxLayout()
+        cards_layout.setSpacing(30)
+
+        self.patient_image_card = self.create_upload_card(
+            "Image Médicale (NIFTI)", "Upload Images...",
+            "NIFTI Files (*.nii *.nii.gz)", "image", scope="patient"
+        )
+        self.patient_clinical_card = self.create_upload_card(
+            "Données cliniques (.csv)", "Upload File...",
+            "CSV Files (*.csv)", "clinical", scope="patient"
+        )
+        cards_layout.addWidget(self.patient_image_card)
+        cards_layout.addWidget(self.patient_clinical_card)
+        layout.addLayout(cards_layout)
+
+        self.patient_evaluate_button = QPushButton("Evaluate prognosis")
+        self.patient_evaluate_button.setFixedHeight(45)
+        self.patient_evaluate_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.patient_evaluate_button.setEnabled(False)
+        self.patient_evaluate_button.clicked.connect(self.run_patient_evaluation)
+        layout.addWidget(self.patient_evaluate_button)
+
+        # --- Zone de visualisation (résultat / preview) ---
+        self.patient_result_area = QLabel("Aucune évaluation pour l'instant.")
+        self.patient_result_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.patient_result_area.setMinimumHeight(200)
+        self.patient_result_area.setStyleSheet("""
+            background-color: white; border: 1px solid #e5e7eb;
+            border-radius: 12px; color: #9ca3af; font-size: 13px;
+        """)
+        layout.addWidget(self.patient_result_area)
+        layout.addStretch()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background-color: #f4f5f7; }")
+        scroll.setWidget(content)
+        return scroll
 
 
+    
+    
+    
+
+    def show_image_preview(self, file_path):
+        try:
+            img = nib.load(file_path)
+            data = img.get_fdata()
+            mid = data.shape[2] // 2
+            slice_ = np.rot90(data[:, :, mid])
+            slice_ = slice_ - slice_.min()
+            if slice_.max() > 0:
+                slice_ = slice_ / slice_.max()
+            slice_ = np.ascontiguousarray((slice_ * 255).astype(np.uint8))
+            h, w = slice_.shape
+            qimg = QImage(slice_.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
+            pixmap = QPixmap.fromImage(qimg).scaled(
+                160, 160, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            self.patient_image_preview.setPixmap(pixmap)
+            self.patient_image_preview.setStyleSheet("border-radius: 8px;")
+            self.patient_image_preview.setVisible(True)
+        except Exception:
+            self.patient_image_preview.setVisible(False)
+
+    def show_clinical_preview(self, file_path):
+        try:
+            df = pd.read_csv(file_path, sep=None, engine="python")
+            rows, cols = df.shape
+            age = df["Age"].iloc[0] if "Age" in df.columns else "—"
+            sexe = df["Sex"].iloc[0] if "Sex" in df.columns else "—"
+            self.patient_clinical_preview.setText(
+                f"{rows} ligne(s) · {cols} colonnes\nÂge: {age}   Sexe: {sexe}"
+            )
+            self.patient_clinical_preview.setStyleSheet(
+                "color: #374151; font-size: 12px; background-color: #f9fafb; "
+                "border-radius: 8px; padding: 10px;"
+            )
+            self.patient_clinical_preview.setVisible(True)
+        except Exception:
+            self.patient_clinical_preview.setVisible(False)
+            
+            
+    def open_viewer(self, key):
+        pid = self.current_patient[0]
+        uploads = self.patient_uploads.get(pid, {})
+        file_path = uploads.get(key)
+        if not file_path:
+            return
+        if key == "image":
+            self.open_image_viewer(file_path)
+        else:
+            self.open_csv_viewer(file_path)
+
+    def open_image_viewer(self, file_path):
+        try:
+            img = nib.load(file_path)
+            data = img.get_fdata()
+        except Exception as e:
+            self.show_error_message("Erreur", f"Impossible de charger l'image :\n{e}")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Visualisation IRM")
+        dialog.resize(600, 650)
+        dialog.setStyleSheet("background-color: #f4f5f7;")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+        dialog.setLayout(layout)
+
+        controls_row = QHBoxLayout()
+        orientation_label = QLabel("Plan :")
+        orientation_label.setStyleSheet("color: #374151; font-weight: 600;")
+        orientation_combo = QComboBox()
+        orientation_combo.addItems(["Axial", "Sagittal", "Coronal"])
+        orientation_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 10px;
+                background-color: white; color: #111827;
+            }
+        """)
+        controls_row.addWidget(orientation_label)
+        controls_row.addWidget(orientation_combo)
+        controls_row.addStretch()
+        layout.addLayout(controls_row)
+
+        image_label = QLabel()
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image_label.setMinimumSize(500, 500)
+        image_label.setStyleSheet("background-color: black; border-radius: 8px;")
+        layout.addWidget(image_label)
+
+        slice_slider = QSlider(Qt.Orientation.Horizontal)
+        slice_info_label = QLabel("")
+        slice_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        slice_info_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        layout.addWidget(slice_slider)
+        layout.addWidget(slice_info_label)
+
+        def axis_index():
+            return {"Axial": 2, "Sagittal": 0, "Coronal": 1}[orientation_combo.currentText()]
+
+        def render_slice():
+            axis = axis_index()
+            max_index = data.shape[axis] - 1
+            slice_slider.blockSignals(True)
+            slice_slider.setMaximum(max_index)
+            if slice_slider.value() > max_index:
+                slice_slider.setValue(max_index // 2)
+            slice_slider.blockSignals(False)
+
+            idx = slice_slider.value()
+            if axis == 2:
+                slice_ = data[:, :, idx]
+            elif axis == 0:
+                slice_ = data[idx, :, :]
+            else:
+                slice_ = data[:, idx, :]
+
+            slice_ = np.rot90(slice_)
+            slice_ = slice_ - slice_.min()
+            if slice_.max() > 0:
+                slice_ = slice_ / slice_.max()
+            slice_ = np.ascontiguousarray((slice_ * 255).astype(np.uint8))
+            h, w = slice_.shape
+            qimg = QImage(slice_.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
+            pixmap = QPixmap.fromImage(qimg).scaled(
+                500, 500, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            image_label.setPixmap(pixmap)
+            slice_info_label.setText(f"Coupe {idx + 1} / {max_index + 1}")
+
+        orientation_combo.currentTextChanged.connect(lambda _: render_slice())
+        slice_slider.valueChanged.connect(lambda _: render_slice())
+
+        slice_slider.setValue(data.shape[2] // 2)
+        render_slice()
+
+        dialog.exec()
+
+    def open_csv_viewer(self, file_path):
+        try:
+            df = pd.read_csv(file_path, sep=None, engine="python")
+        except Exception as e:
+            self.show_error_message("Erreur", f"Impossible de charger le CSV :\n{e}")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Données cliniques")
+        dialog.resize(900, 500)
+        dialog.setStyleSheet("background-color: #f4f5f7;")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        dialog.setLayout(layout)
+
+        table = QTableWidget()
+        table.setRowCount(len(df))
+        table.setColumnCount(len(df.columns))
+        table.setHorizontalHeaderLabels([str(c) for c in df.columns])
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setStyleSheet("""
+            QTableWidget {
+                background-color: white; border: 1px solid #e5e7eb; border-radius: 8px;
+                gridline-color: #f3f4f6;
+            }
+            QTableWidget::item { color: #111827; padding: 6px; }
+            QHeaderView::section {
+                background-color: #f9fafb; color: #374151; font-weight: 600;
+                padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
+            }
+        """)
+
+        for row in range(len(df)):
+            for col in range(len(df.columns)):
+                value = df.iloc[row, col]
+                table.setItem(row, col, QTableWidgetItem(str(value)))
+
+        layout.addWidget(table)
+        dialog.exec()
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = DashboardScreen()
