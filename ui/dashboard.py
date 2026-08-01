@@ -61,6 +61,10 @@ class DashboardScreen(QWidget):
         self.nom = nom
         self.role = role
         self.users_button = None  
+        
+        self.all_patients = []
+        self.current_page = 1
+        self.page_size = 10
 
         self.image_path = None
         self.clinical_path = None
@@ -457,9 +461,15 @@ class DashboardScreen(QWidget):
 
         # --- Tableau (caché par défaut) ---
         self.patients_table = QTableWidget()
-        self.patients_table.setColumnCount(5)
-        self.patients_table.setHorizontalHeaderLabels(["Nom", "Prénom", "Âge", "Sexe", "Date d'ajout"])
+        self.patients_table.setColumnCount(6)
+        self.patients_table.setHorizontalHeaderLabels(["Nom", "Prénom", "Âge", "Sexe", "Date d'ajout", "Actions"])
         self.patients_table.horizontalHeader().setStretchLastSection(True)
+        self.patients_table.setColumnWidth(0, 150)  # Nom
+        self.patients_table.setColumnWidth(1, 150)  # Prénom
+        self.patients_table.setColumnWidth(2, 80)   # Âge
+        self.patients_table.setColumnWidth(3, 80)   # Sexe
+        self.patients_table.setColumnWidth(4, 150)  # Date d'ajout
+        self.patients_table.setColumnWidth(5, 120)  # Actions
         self.patients_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.patients_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.patients_table.setStyleSheet("""
@@ -474,12 +484,12 @@ class DashboardScreen(QWidget):
         padding: 8px;
         border: none;
     }
-QTableWidget::item:selected {
-    background-color: #f3f4f6;
-    color: #111827;
-    outline: none;
+    QTableWidget::item:selected {
+        background-color: #f3f4f6;
+        color: #111827;
+        outline: none;
 
-}
+    }
     QHeaderView::section {
         background-color: #f9fafb;
         color: #374151;
@@ -488,23 +498,113 @@ QTableWidget::item:selected {
         border: none;
         border-bottom: 1px solid #e5e7eb;
     }
-""")
+     QScrollBar:vertical {
+        background: transparent;
+        width: 10px;
+        margin: 4px 2px 4px 0px;
+    }
+    QScrollBar::handle:vertical {
+        background: #cbd5e1;
+        border-radius: 5px;
+        min-height: 30px;
+    }
+    QScrollBar::handle:vertical:hover {
+        background: #94a3b8;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+        height: 0px;
+        background: none;
+        border: none;
+    }
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+        background: none;
+    }
+
+    QScrollBar:horizontal {
+        background: transparent;
+        height: 10px;
+        margin: 0px 4px 2px 4px;
+    }
+    QScrollBar::handle:horizontal {
+        background: #cbd5e1;
+        border-radius: 5px;
+        min-width: 30px;
+    }
+    QScrollBar::handle:horizontal:hover {
+        background: #94a3b8;
+    }
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+        width: 0px;
+        background: none;
+        border: none;
+    }
+    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+        background: none;
+    }
+
+    """)
         self.patients_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.patients_table.setVisible(False)
+        
+        # --- Barre de pagination ---
+        pagination_layout = QHBoxLayout()
+        pagination_layout.setContentsMargins(0, 10, 0, 0)
+
+        self.prev_button = QPushButton("←  Précédent")
+        self.next_button = QPushButton("Suivant  →")
+        self.page_label = QLabel("Page 1 / 1")
+
+        pagination_button_style = """
+            QPushButton {
+                background-color: white;
+                color: #374151;
+                border: 1px solid #e5e7eb;
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #f3f4f6;
+            }
+            QPushButton:disabled {
+                color: #d1d5db;
+                background-color: #f9fafb;
+            }
+        """
+        self.prev_button.setStyleSheet(pagination_button_style)
+        self.next_button.setStyleSheet(pagination_button_style)
+        self.prev_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.next_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.page_label.setStyleSheet("color: #6b7280; font-size: 13px; font-weight: 500;")
+        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.prev_button.clicked.connect(self.go_to_previous_page)
+        self.next_button.clicked.connect(self.go_to_next_page)
+
+        pagination_layout.addStretch()
+        pagination_layout.addWidget(self.prev_button)
+        pagination_layout.addWidget(self.page_label)
+        pagination_layout.addWidget(self.next_button)
+        pagination_layout.addStretch()
+
+        layout.addLayout(pagination_layout)
 
         layout.addWidget(self.empty_state_label)
         layout.addWidget(self.patients_table)
+        
 
         return page
     
-    def refresh_patients_display(self, patients=None):
-        """patients: liste de tuples venant de la DB. None ou [] = aucun patient."""
-        if not patients:
-            self.empty_state_label.setVisible(True)
-            self.patients_table.setVisible(False)
-        else:
-            self.empty_state_label.setVisible(False)
-            self.patients_table.setVisible(True)
+    # def refresh_patients_display(self, patients=None):
+    #     """patients: liste de tuples venant de la DB. None ou [] = aucun patient."""
+    #     if not patients:
+    #         self.empty_state_label.setVisible(True)
+    #         self.patients_table.setVisible(False)
+    #     else:
+    #         self.empty_state_label.setVisible(False)
+    #         self.patients_table.setVisible(True)
 
     def open_add_patient_dialog(self):
         dialog = AddPatientDialog(self)
@@ -516,17 +616,148 @@ QTableWidget::item:selected {
             except Exception as e:
                 self.show_error_message("Erreur", f"Impossible d'ajouter le patient :\n{e}")
                 
-    def load_patients(self):
-        patients = get_patients_by_medecin(self.user_id)
-        self.refresh_patients_display(patients)
+    # def load_patients(self):
+    #     patients = get_patients_by_medecin(self.user_id)
+    #     self.refresh_patients_display(patients)
 
-        self.patients_table.setRowCount(len(patients))
-        for row, (id_, nom, prenom, age, sexe, created_at) in enumerate(patients):
+    #     self.patients_table.setRowCount(len(patients))
+    #     self.patients_table.verticalHeader().setDefaultSectionSize(48)
+    #     for row, patient  in enumerate(patients):
+    #         id_, nom, prenom, age, sexe, created_at = patient
+    #         self.patients_table.setItem(row, 0, QTableWidgetItem(nom))
+    #         self.patients_table.setItem(row, 1, QTableWidgetItem(prenom))
+    #         self.patients_table.setItem(row, 2, QTableWidgetItem(str(age)))
+    #         self.patients_table.setItem(row, 3, QTableWidgetItem(sexe))
+    #         self.patients_table.setItem(row, 4, QTableWidgetItem(created_at.strftime("%d/%m/%Y")))
+    #         show_button = QPushButton("Afficher")
+    #         show_button.setCursor(Qt.CursorShape.PointingHandCursor)
+    #         show_button.setStyleSheet("""
+    #             QPushButton {
+    #                 background-color: #eff6ff;
+    #                 color: #2563eb;
+    #                 border: 1px solid #bfdbfe;
+    #                 border-radius: 6px;
+    #                 padding: 4px 12px;
+    #                 font-size: 12px;
+    #                 font-weight: 600;
+    #             }
+    #             QPushButton:hover {
+    #                 background-color: #dbeafe;
+    #             }
+    #         """)
+    #         show_button.setFixedWidth(90)
+    #         show_button.setFixedHeight(28)
+    #         show_button.clicked.connect(lambda checked, p=patient: self.show_patient_details(p))
+    #         self.patients_table.setCellWidget(row, 5, show_button)
+    
+    def load_patients(self):
+        self.all_patients = get_patients_by_medecin(self.user_id)
+        self.current_page = 1
+        self.render_page()
+
+    def refresh_patients_display(self, patients=None):
+        """patients: liste de tuples venant de la DB. None ou [] = aucun patient."""
+        has_patients = bool(self.all_patients)
+        self.empty_state_label.setVisible(not has_patients)
+        self.patients_table.setVisible(has_patients)
+        self.prev_button.setVisible(has_patients)
+        self.next_button.setVisible(has_patients)
+        self.page_label.setVisible(has_patients)
+
+    def total_pages(self):
+        if not self.all_patients:
+            return 1
+        return (len(self.all_patients) - 1) // self.page_size + 1
+
+    def render_page(self):
+        self.refresh_patients_display()
+
+        total = self.total_pages()
+        self.current_page = max(1, min(self.current_page, total))
+
+        start = (self.current_page - 1) * self.page_size
+        end = start + self.page_size
+        page_patients = self.all_patients[start:end]
+
+        self.patients_table.setRowCount(len(page_patients))
+        self.patients_table.verticalHeader().setDefaultSectionSize(48)
+
+        for row, patient in enumerate(page_patients):
+            id_, nom, prenom, age, sexe, created_at = patient
             self.patients_table.setItem(row, 0, QTableWidgetItem(nom))
             self.patients_table.setItem(row, 1, QTableWidgetItem(prenom))
             self.patients_table.setItem(row, 2, QTableWidgetItem(str(age)))
             self.patients_table.setItem(row, 3, QTableWidgetItem(sexe))
             self.patients_table.setItem(row, 4, QTableWidgetItem(created_at.strftime("%d/%m/%Y")))
+
+            show_button = QPushButton("Afficher")
+            show_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            show_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #eff6ff;
+                    color: #2563eb;
+                    border: 1px solid #bfdbfe;
+                    border-radius: 6px;
+                    padding: 4px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #dbeafe;
+                }
+            """)
+            show_button.setFixedWidth(90)
+            show_button.setFixedHeight(28)
+            show_button.clicked.connect(lambda checked, p=patient: self.show_patient_details(p))
+            self.patients_table.setCellWidget(row, 5, show_button)
+
+        self.page_label.setText(f"Page {self.current_page} / {total}")
+        self.prev_button.setEnabled(self.current_page > 1)
+        self.next_button.setEnabled(self.current_page < total)
+
+    def go_to_previous_page(self):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.render_page()
+
+    def go_to_next_page(self):
+        if self.current_page < self.total_pages():
+            self.current_page += 1
+            self.render_page()
+        
+    def show_patient_details(self, patient):
+        id_, nom, prenom, age, sexe, created_at = patient
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Détails du patient")
+        box.setText(
+            f"<b>Nom :</b> {nom}<br>"
+            f"<b>Prénom :</b> {prenom}<br>"
+            f"<b>Âge :</b> {age}<br>"
+            f"<b>Sexe :</b> {sexe}<br>"
+            f"<b>Date d'ajout :</b> {created_at.strftime('%d/%m/%Y')}"
+        )
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.setStyleSheet("""
+            QMessageBox QLabel {
+                color: #111827;
+                font-size: 13px;
+            }
+            QPushButton {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 18px;
+            min-width: 70px;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background-color: #1d4ed8;
+        }
+        """)
+        box.exec()
 
     def select_file(self, button, file_filter, key):
         file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "", file_filter)
