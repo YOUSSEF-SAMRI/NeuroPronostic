@@ -76,6 +76,30 @@ class DashboardScreen(QWidget):
         
         self.patient_uploads = {}   # {patient_id: {"image": path_or_None, "clinical": path_or_None}}
         self.current_patient = None
+        
+        self.scrollbar_style = """
+                                QScrollBar:vertical {
+                                    background: transparent;
+                                    width: 10px;
+                                    margin: 4px 2px 4px 0px;
+                                }
+                                QScrollBar::handle:vertical {
+                                    background: #cbd5e1;
+                                    border-radius: 5px;
+                                    min-height: 30px;
+                                }
+                                QScrollBar::handle:vertical:hover {
+                                    background: #94a3b8;
+                                }
+                                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                                    height: 0px;
+                                    background: none;
+                                    border: none;
+                                }
+                                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                                    background: none;
+                                }
+                            """
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("background-color: #f4f5f7;")
@@ -86,13 +110,13 @@ class DashboardScreen(QWidget):
 
         sidebar = self.build_sidebar()
         self.content_stack = QStackedWidget()
-        self.dashboard_page = self.build_content()          # page existante (index 0)
-        self.patients_page = self.build_patients_page()      # nouvelle page (index 1)
+        self.dashboard_page = self.build_content()     
+        self.patients_page = self.build_patients_page()      
 
         self.content_stack.addWidget(self.dashboard_page)
         self.content_stack.addWidget(self.patients_page)
         
-        self.patient_detail_page = self.build_patient_detail_page()   # ← nouvelle ligne
+        self.patient_detail_page = self.build_patient_detail_page()  
         self.content_stack.addWidget(self.patient_detail_page)
         
         main_layout.addWidget(sidebar)
@@ -276,6 +300,15 @@ class DashboardScreen(QWidget):
         self.clinical_path = None
         self.update_evaluate_button()
         self.reset_upload_buttons()
+        
+        self.all_patients = []
+        self.current_page = 1
+        self.current_patient = None
+        self.patient_uploads = {}
+        self.content_stack.setCurrentIndex(0)
+        for btn in self.nav_buttons:
+            btn.setStyleSheet(self.button_style)
+        self.nav_buttons[0].setStyleSheet(self.active_button_style)
 
         # Retour au login
         if self.stack:
@@ -335,6 +368,33 @@ class DashboardScreen(QWidget):
             return 
         self.register_window = ManageUsersScreen()
         self.register_window.show()
+        
+    def reset_to_dashboard(self):
+        # Retour à la page Dashboard
+        self.content_stack.setCurrentIndex(0)
+        for btn in self.nav_buttons:
+            btn.setStyleSheet(self.button_style)
+        self.nav_buttons[0].setStyleSheet(self.active_button_style)  # Dashboard actif
+
+        # Vider les données de l'ancien médecin
+        self.all_patients = []
+        self.current_page = 1
+        self.current_patient = None
+        self.patient_uploads = {}
+
+        # Vider les uploads du dashboard général
+        self.image_path = None
+        self.clinical_path = None
+        self.update_evaluate_button()
+        self.reset_upload_buttons()
+
+    def set_user(self, user_id, nom, role):
+        self.user_id = user_id
+        self.nom = nom
+        self.role = role
+        if self.users_button:
+            self.users_button.setVisible(role == "admin")
+        self.reset_to_dashboard()
         
         
     def set_user(self, user_id, nom, role):
@@ -518,12 +578,12 @@ class DashboardScreen(QWidget):
         header_layout.addWidget(add_button)
         layout.addLayout(header_layout)
 
-        # --- État vide ---
+        # etat vide
         self.empty_state_label = QLabel("Aucun patient pour l'instant.\nCliquez sur \"Ajouter un patient\" pour commencer.")
         self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_state_label.setStyleSheet("color: #9ca3af; font-size: 14px; padding: 80px 0;")
 
-        # --- Tableau (caché par défaut) ---
+        # table
         self.patients_table = QTableWidget()
         self.patients_table.setColumnCount(6)
         self.patients_table.setHorizontalHeaderLabels(["Nom", "Prénom", "Âge", "Sexe", "Date d'ajout", "Actions"])
@@ -610,7 +670,7 @@ class DashboardScreen(QWidget):
         self.patients_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.patients_table.setVisible(False)
         
-        # --- Barre de pagination ---
+
         pagination_layout = QHBoxLayout()
         pagination_layout.setContentsMargins(0, 10, 0, 0)
 
@@ -680,39 +740,7 @@ class DashboardScreen(QWidget):
             except Exception as e:
                 self.show_error_message("Erreur", f"Impossible d'ajouter le patient :\n{e}")
                 
-    # def load_patients(self):
-    #     patients = get_patients_by_medecin(self.user_id)
-    #     self.refresh_patients_display(patients)
-
-    #     self.patients_table.setRowCount(len(patients))
-    #     self.patients_table.verticalHeader().setDefaultSectionSize(48)
-    #     for row, patient  in enumerate(patients):
-    #         id_, nom, prenom, age, sexe, created_at = patient
-    #         self.patients_table.setItem(row, 0, QTableWidgetItem(nom))
-    #         self.patients_table.setItem(row, 1, QTableWidgetItem(prenom))
-    #         self.patients_table.setItem(row, 2, QTableWidgetItem(str(age)))
-    #         self.patients_table.setItem(row, 3, QTableWidgetItem(sexe))
-    #         self.patients_table.setItem(row, 4, QTableWidgetItem(created_at.strftime("%d/%m/%Y")))
-    #         show_button = QPushButton("Afficher")
-    #         show_button.setCursor(Qt.CursorShape.PointingHandCursor)
-    #         show_button.setStyleSheet("""
-    #             QPushButton {
-    #                 background-color: #eff6ff;
-    #                 color: #2563eb;
-    #                 border: 1px solid #bfdbfe;
-    #                 border-radius: 6px;
-    #                 padding: 4px 12px;
-    #                 font-size: 12px;
-    #                 font-weight: 600;
-    #             }
-    #             QPushButton:hover {
-    #                 background-color: #dbeafe;
-    #             }
-    #         """)
-    #         show_button.setFixedWidth(90)
-    #         show_button.setFixedHeight(28)
-    #         show_button.clicked.connect(lambda checked, p=patient: self.show_patient_details(p))
-    #         self.patients_table.setCellWidget(row, 5, show_button)
+    
     
     def load_patients(self):
         self.all_patients = get_patients_by_medecin(self.user_id)
@@ -839,7 +867,7 @@ class DashboardScreen(QWidget):
         pid = self.current_patient[0]
         uploads = self.patient_uploads[pid]
         print(f"Analyse patient {pid} : {uploads['image']} + {uploads['clinical']}")
-        # -> ici tu branches ton pipeline, puis tu affiches le résultat dans self.patient_result_area
+        # ici fain an7et pipline
 
     def select_file(self, button, file_filter, key , scope="dashboard"):
         file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "", file_filter)
@@ -859,14 +887,14 @@ class DashboardScreen(QWidget):
             else:
                 self.clinical_path = file_path
             self.update_evaluate_button()
-        else:  # patient
+        else:  
             pid = self.current_patient[0]
             self.patient_uploads.setdefault(pid, {"image": None, "clinical": None})
             self.patient_uploads[pid][key] = file_path
             self.update_patient_evaluate_button()
             if key == "image":
                 self.show_image_preview(file_path)
-                self.patient_image_view_button.setVisible(True)   # ← ligne à ajouter
+                self.patient_image_view_button.setVisible(True)   
 
             else:
                 self.show_clinical_preview(file_path)
@@ -1021,7 +1049,7 @@ class DashboardScreen(QWidget):
         if not self.image_path or not self.clinical_path:
             return
         print(f"Analyse en cours : {self.image_path} + {self.clinical_path}")
-        # branche ici le pipeline (chargement NIFTI, lecture CSV, appel au modèle)
+        
 
     def _make_shadow(self):
         shadow = QGraphicsDropShadowEffect()
@@ -1039,7 +1067,7 @@ class DashboardScreen(QWidget):
         layout.setSpacing(20)
         content.setLayout(layout)
 
-        # --- Header : retour + infos patient ---
+        # header retour + patient info
         top_bar = QHBoxLayout()
         back_button = QPushButton("←  Retour")
         back_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1055,7 +1083,7 @@ class DashboardScreen(QWidget):
         top_bar.addStretch()
         layout.addLayout(top_bar)
 
-        # --- Carte info patient ---
+        # carte info
         info_card = QFrame()
         info_card.setStyleSheet("""
             QFrame {
@@ -1139,7 +1167,7 @@ class DashboardScreen(QWidget):
         info_layout.addLayout(text_col, stretch=1)
         layout.addWidget(info_card)
 
-        # --- Cartes upload (réutilise create_upload_card) ---
+        # carte upload
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(30)
 
@@ -1162,7 +1190,7 @@ class DashboardScreen(QWidget):
         self.patient_evaluate_button.clicked.connect(self.run_patient_evaluation)
         layout.addWidget(self.patient_evaluate_button)
 
-        # --- Zone de visualisation (résultat / preview) ---
+        # zone de visualisation
         self.patient_result_area = QLabel("Aucune évaluation pour l'instant.")
         self.patient_result_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.patient_result_area.setMinimumHeight(200)
@@ -1174,7 +1202,7 @@ class DashboardScreen(QWidget):
         layout.addStretch()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background-color: #f4f5f7; }")
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background-color: #f4f5f7; }}{self.scrollbar_style}")
         scroll.setWidget(content)
         return scroll
 
@@ -1243,45 +1271,98 @@ class DashboardScreen(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Visualisation IRM")
-        dialog.resize(600, 650)
+        dialog.resize(620, 700)
         dialog.setStyleSheet("background-color: #f4f5f7;")
 
         layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         dialog.setLayout(layout)
 
-        controls_row = QHBoxLayout()
-        orientation_label = QLabel("Plan :")
-        orientation_label.setStyleSheet("color: #374151; font-weight: 600;")
-        orientation_combo = QComboBox()
-        orientation_combo.addItems(["Axial", "Sagittal", "Coronal"])
-        orientation_combo.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 10px;
-                background-color: white; color: #111827;
+       
+        title_label = QLabel("Visualisation de l'IRM")
+        title_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #111827; background: transparent; border: none;")
+        layout.addWidget(title_label)
+
+        plane_row = QHBoxLayout()
+        plane_row.setSpacing(8)
+        plane_buttons = {}
+        plane_toggle_style_off = """
+            QPushButton {
+                background-color: white; color: #4b5563; border: 1px solid #e5e7eb;
+                border-radius: 8px; padding: 8px 18px; font-size: 12px; font-weight: 600;
             }
+            QPushButton:hover { background-color: #f3f4f6; }
+        """
+        plane_toggle_style_on = """
+            QPushButton {
+                background-color: #2563eb; color: white; border: 1px solid #2563eb;
+                border-radius: 8px; padding: 8px 18px; font-size: 12px; font-weight: 700;
+            }
+        """
+        current_plane = {"value": "Axial"}
+
+        for plane in ("Axial", "Sagittal", "Coronal"):
+            btn = QPushButton(plane)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(plane_toggle_style_on if plane == "Axial" else plane_toggle_style_off)
+            plane_buttons[plane] = btn
+            plane_row.addWidget(btn)
+        plane_row.addStretch()
+        layout.addLayout(plane_row)
+
+        image_frame = QFrame()
+        image_frame.setFixedSize(520, 520)
+        image_frame.setStyleSheet("""
+            QFrame { background-color: #0a0a0a; border-radius: 14px; border: 1px solid #1f2937; }
         """)
-        controls_row.addWidget(orientation_label)
-        controls_row.addWidget(orientation_combo)
-        controls_row.addStretch()
-        layout.addLayout(controls_row)
+        image_frame_layout = QVBoxLayout()
+        image_frame_layout.setContentsMargins(10, 10, 10, 10)
+        image_frame.setLayout(image_frame_layout)
 
         image_label = QLabel()
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        image_label.setMinimumSize(500, 500)
-        image_label.setStyleSheet("background-color: black; border-radius: 8px;")
-        layout.addWidget(image_label)
+        image_label.setStyleSheet("background: transparent; border: none;")
+        image_frame_layout.addWidget(image_label)
+
+        frame_wrapper = QHBoxLayout()
+        frame_wrapper.addStretch()
+        frame_wrapper.addWidget(image_frame)
+        frame_wrapper.addStretch()
+        layout.addLayout(frame_wrapper)
+
+        slider_row = QHBoxLayout()
+        slider_row.setSpacing(12)
 
         slice_slider = QSlider(Qt.Orientation.Horizontal)
+        slice_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                height: 5px; background: #e5e7eb; border-radius: 2px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #2563eb; border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background: white; border: 2px solid #2563eb; width: 16px;
+                height: 16px; margin: -6px 0; border-radius: 8px;
+            }
+            QSlider::handle:horizontal:hover { background: #eff6ff; }
+        """)
+        slider_row.addWidget(slice_slider, stretch=1)
+
         slice_info_label = QLabel("")
         slice_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        slice_info_label.setStyleSheet("color: #6b7280; font-size: 12px;")
-        layout.addWidget(slice_slider)
-        layout.addWidget(slice_info_label)
+        slice_info_label.setFixedWidth(90)
+        slice_info_label.setStyleSheet("""
+            color: #2563eb; font-size: 12px; font-weight: 700;
+            background-color: #eff6ff; border-radius: 8px; padding: 6px 4px;
+            border: none;
+        """)
+        slider_row.addWidget(slice_info_label)
+        layout.addLayout(slider_row)
 
         def axis_index():
-            return {"Axial": 2, "Sagittal": 0, "Coronal": 1}[orientation_combo.currentText()]
+            return {"Axial": 2, "Sagittal": 0, "Coronal": 1}[current_plane["value"]]
 
         def render_slice():
             axis = axis_index()
@@ -1308,12 +1389,20 @@ class DashboardScreen(QWidget):
             h, w = slice_.shape
             qimg = QImage(slice_.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
             pixmap = QPixmap.fromImage(qimg).scaled(
-                500, 500, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                480, 480, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
             image_label.setPixmap(pixmap)
-            slice_info_label.setText(f"Coupe {idx + 1} / {max_index + 1}")
+            slice_info_label.setText(f"{idx + 1} / {max_index + 1}")
 
-        orientation_combo.currentTextChanged.connect(lambda _: render_slice())
+        def select_plane(plane):
+            current_plane["value"] = plane
+            for name, btn in plane_buttons.items():
+                btn.setStyleSheet(plane_toggle_style_on if name == plane else plane_toggle_style_off)
+            render_slice()
+
+        for plane, btn in plane_buttons.items():
+            btn.clicked.connect(lambda checked, p=plane: select_plane(p))
+
         slice_slider.valueChanged.connect(lambda _: render_slice())
 
         slice_slider.setValue(data.shape[2] // 2)
@@ -1353,6 +1442,39 @@ class DashboardScreen(QWidget):
                 padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
             }
         """)
+        table.setStyleSheet(f"""
+                            QTableWidget {{
+                                background-color: white; border: 1px solid #e5e7eb; border-radius: 8px;
+                                gridline-color: #f3f4f6;
+                            }}
+                            QTableWidget::item {{ color: #111827; padding: 6px; }}
+                            QHeaderView::section {{
+                                background-color: #f9fafb; color: #374151; font-weight: 600;
+                                padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
+                            }}
+                            {self.scrollbar_style}
+                            QScrollBar:horizontal {{
+                                background: transparent;
+                                height: 10px;
+                                margin: 0px 4px 2px 4px;
+                            }}
+                            QScrollBar::handle:horizontal {{
+                                background: #cbd5e1;
+                                border-radius: 5px;
+                                min-width: 30px;
+                            }}
+                            QScrollBar::handle:horizontal:hover {{
+                                background: #94a3b8;
+                            }}
+                            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                                width: 0px;
+                                background: none;
+                                border: none;
+                            }}
+                            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                                background: none;
+                            }}
+                        """)
 
         for row in range(len(df)):
             for col in range(len(df.columns)):
@@ -1361,6 +1483,8 @@ class DashboardScreen(QWidget):
 
         layout.addWidget(table)
         dialog.exec()
+        
+        
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = DashboardScreen()
