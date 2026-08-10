@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFrame, QFileDialog,
-    QGraphicsDropShadowEffect, QMessageBox
+    QGraphicsDropShadowEffect, QMessageBox, QLineEdit
 )
 from models.evaluation import fake_evaluate_prognosis
 from models.evaluations import add_evaluation
@@ -20,6 +20,11 @@ from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
 from ui.patient_dialog import AddPatientDialog
 from models.patients import add_patient, get_patients_by_medecin
 from models.evaluations import get_evaluations_by_medecin
+from models.evaluations import (
+    add_evaluation,
+    get_evaluations_by_medecin,
+    get_last_evaluation_by_patient
+)
 
 REQUIRED_CLINICAL_COLUMNS = [
                             "Center",
@@ -594,7 +599,7 @@ class DashboardScreen(QWidget):
         # table
         self.patients_table = QTableWidget()
         self.patients_table.setColumnCount(6)
-        self.patients_table.setHorizontalHeaderLabels(["Nom", "Prénom", "Âge", "Sexe", "Date d'ajout", "Actions"])
+        self.patients_table.setHorizontalHeaderLabels(["Nom", "Prénom", "Age", "Sexe", "Date d'ajout", "Actions"])
         self.patients_table.horizontalHeader().setStretchLastSection(True)
         self.patients_table.setColumnWidth(0, 150)  # Nom
         self.patients_table.setColumnWidth(1, 150)  # Prénom
@@ -849,6 +854,24 @@ class DashboardScreen(QWidget):
         if uploads["clinical"]:
             self.patient_clinical_upload_button.setText(f"  {os.path.basename(uploads['clinical'])}")
             self.show_clinical_preview(uploads["clinical"])
+            
+        result = get_last_evaluation_by_patient(id_)
+
+        if result:
+            self.display_evaluation_result(result)
+        else:
+            # Aucun résultat pour ce patient
+            self.patient_result_area.setText(
+                "Aucune évaluation pour l'instant."
+            )
+
+            self.patient_result_area.setStyleSheet("""
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                color: #9ca3af;
+                font-size: 13px;
+            """)
 
         self.update_patient_evaluate_button()
         self.content_stack.setCurrentIndex(2)
@@ -1519,25 +1542,125 @@ class DashboardScreen(QWidget):
         layout.setContentsMargins(60, 50, 60, 50)
         layout.setSpacing(20)
         page.setLayout(layout)
-
+ 
+        # --- Header : titre + sous-titre ---
+        header_layout = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+ 
         title = QLabel("Historique des évaluations")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: #374151;")
-        layout.addWidget(title)
+        self.historique_count_label = QLabel("0 évaluation enregistrée")
+        self.historique_count_label.setStyleSheet("color: #9ca3af; font-size: 13px;")
+ 
+        title_col.addWidget(title)
+        title_col.addWidget(self.historique_count_label)
+        header_layout.addLayout(title_col)
+        header_layout.addStretch()
+ 
+        # --- Recherche + filtre risque ---
+        self.historique_search = QLineEdit()
+        self.historique_search.setPlaceholderText("Rechercher un patient")
+        self.historique_search.setFixedWidth(200)
+        self.historique_search.setFixedHeight(36)
+        self.historique_search.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #e5e7eb; border-radius: 8px;
+                padding: 0 12px; font-size: 13px; background-color: white;
+                color: #111827;
+            }
+            QLineEdit:focus { border-color: #2563eb; }
+        """)
+        self.historique_search.textChanged.connect(self.filter_historique)
+ 
+        self.historique_risk_filter = QComboBox()
+        self.historique_risk_filter.addItems(["Tous les risques", "Élevé", "Modéré", "Faible"])
+        self.historique_risk_filter.setFixedWidth(150)
+        self.historique_risk_filter.setFixedHeight(36)
+        self.historique_risk_filter.setStyleSheet("""
+            /* --- Partie visible du ComboBox --- */
+    QComboBox {
+        background-color: white;
+        color: #111827;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding-left: 12px;
+        padding-right: 12px;
+        font-size: 13px;
+    }
 
+    QComboBox:hover {
+        border: 1px solid #d1d5db;
+    }
+
+    QComboBox:focus {
+        border: 1px solid #2563eb;
+    }
+
+    /* --- Bouton avec la flèche --- */
+    QComboBox::drop-down {
+        border: none;
+        width: 30px;
+    }
+
+    /* --- Menu déroulant --- */
+    QComboBox QAbstractItemView {
+        background-color: white;
+        color: #111827;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 4px;
+        outline: none;
+        selection-background-color: #eff6ff;
+        selection-color: #111827;
+    }
+
+    /* --- Chaque élément du menu --- */
+    QComboBox QAbstractItemView::item {
+        height: 32px;
+        padding-left: 8px;
+        padding-right: 8px;
+        border-radius: 5px;
+    }
+
+    QComboBox QAbstractItemView::item:hover {
+        background-color: #f3f4f6;
+        color: #111827;
+    }
+""")
+        self.historique_risk_filter.currentIndexChanged.connect(self.filter_historique)
+ 
+        header_layout.addWidget(self.historique_search)
+        header_layout.addWidget(self.historique_risk_filter)
+        layout.addLayout(header_layout)
+ 
+        # --- Cartes stats ---
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(16)
+ 
+        self.historique_total_card, self.historique_total_value = self._make_stat_card("Total", "#374151")
+        self.historique_risk_card, self.historique_risk_value = self._make_stat_card("Risque élevé", "#dc2626")
+        self.historique_avg_card, self.historique_avg_value = self._make_stat_card("Score moyen", "#374151")
+ 
+        stats_layout.addWidget(self.historique_total_card)
+        stats_layout.addWidget(self.historique_risk_card)
+        stats_layout.addWidget(self.historique_avg_card)
+        layout.addLayout(stats_layout)
+ 
         # --- État vide ---
         self.historique_empty_label = QLabel("Aucune évaluation pour l'instant.")
         self.historique_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.historique_empty_label.setStyleSheet("color: #9ca3af; font-size: 14px; padding: 80px 0;")
-
+ 
         # --- Tableau ---
         self.historique_table = QTableWidget()
         self.historique_table.setColumnCount(5)
         self.historique_table.setHorizontalHeaderLabels(["Patient", "Date", "Score", "Risque", "Actions"])
         self.historique_table.horizontalHeader().setStretchLastSection(True)
-        self.historique_table.setColumnWidth(0, 180)
+        self.historique_table.setColumnWidth(0, 220)
         self.historique_table.setColumnWidth(1, 150)
         self.historique_table.setColumnWidth(2, 80)
-        self.historique_table.setColumnWidth(3, 100)
+        self.historique_table.setColumnWidth(3, 110)
         self.historique_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.historique_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.historique_table.setStyleSheet(f"""
@@ -1555,35 +1678,173 @@ class DashboardScreen(QWidget):
         """)
         self.historique_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.historique_table.setVisible(False)
-
+        self.historique_table.verticalHeader().setDefaultSectionSize(56)
+ 
         layout.addWidget(self.historique_empty_label)
         layout.addWidget(self.historique_table)
-
+ 
+        # stocke les lignes brutes (pour le filtrage) et la source
+        self.historique_all_rows = []
+ 
         return page
+    
+    
+    
+    def _make_stat_card(self, label_text, value_color):
+        """Petite carte stat, même style que tes autres QFrame + ombre."""
+        card = QFrame()
+        card.setFixedHeight(76)
+        card.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+            }
+        """)
+        card.setGraphicsEffect(self._make_shadow())
+ 
+        card_layout = QVBoxLayout()
+        card_layout.setContentsMargins(18, 12, 18, 12)
+        card_layout.setSpacing(4)
+        card.setLayout(card_layout)
+ 
+        label = QLabel(label_text)
+        label.setStyleSheet("color: #9ca3af; font-size: 12px; font-weight: 600; border: none; background: transparent;")
+ 
+        value = QLabel("0")
+        value.setStyleSheet(f"color: {value_color}; font-size: 22px; font-weight: 700; border: none; background: transparent;")
+ 
+        card_layout.addWidget(label)
+        card_layout.addWidget(value)
+ 
+        return card, value
+    
+    
+    def create_risk_badge(self, risk_level):
+        """Widget badge coloré pour la colonne Risque."""
+        colors = {
+            "Faible": ("#dcfce7", "#16a34a"),
+            "Modéré": ("#fef3c7", "#b45309"),
+            "Élevé":  ("#fee2e2", "#dc2626"),
+        }
+        bg, fg = colors.get(risk_level, ("#f3f4f6", "#374151"))
+ 
+        wrapper = QWidget()
+        wrapper.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        wrapper.setStyleSheet("background-color: transparent;")
+        
+        wrapper_layout = QHBoxLayout()
+        wrapper_layout.setContentsMargins(8, 0, 0, 0)
+        wrapper.setLayout(wrapper_layout)
+ 
+        badge = QLabel(risk_level)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setStyleSheet(f"""
+            QLabel {{
+                background-color: {bg}; color: {fg};
+                border-radius: 10px; padding: 4px 12px;
+                font-size: 12px; font-weight: 600; border: none;
+            }}
+        """)
+        wrapper_layout.addWidget(badge)
+        wrapper_layout.addStretch()
+        return wrapper
 
+
+    def create_patient_cell(self, nom, prenom):
+        """Widget avatar + nom pour la colonne Patient."""
+        initials = (nom[:1] + prenom[:1]).upper() if nom and prenom else "?"
+ 
+        wrapper = QWidget()
+        wrapper.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        wrapper.setStyleSheet("background-color: transparent;")
+
+        wrapper_layout = QHBoxLayout()
+        wrapper_layout.setContentsMargins(10, 0, 0, 0)
+        wrapper_layout.setSpacing(10)
+        wrapper.setLayout(wrapper_layout)
+ 
+        avatar = QLabel(initials)
+        avatar.setFixedSize(30, 30)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet("""
+            QLabel {
+                background-color: #eff6ff; color: #2563eb;
+                border-radius: 15px; font-size: 11px; font-weight: 700; border: none;
+            }
+        """)
+ 
+        name = QLabel(f"{nom} {prenom}")
+        name.setStyleSheet("color: #111827; font-size: 13px; border: none; background: transparent;")
+ 
+        wrapper_layout.addWidget(avatar)
+        wrapper_layout.addWidget(name)
+        wrapper_layout.addStretch()
+        return wrapper
 
     def load_historique(self):
         rows = get_evaluations_by_medecin(self.user_id)
+        self.historique_all_rows = rows
+
+        # Calcul du score moyen
+        scores = []
+        
+        for row in rows:
+            eval_id, nom, prenom, result, created_at, image_path, clinical_csv_path = row
+
+            score = result.get("score")
+
+            if score is not None:
+                scores.append(float(score))
+
+        if scores:
+            moyenne = sum(scores) / len(scores)
+            self.historique_avg_value.setText(f"{moyenne:.2f}")
+        else:
+            self.historique_avg_value.setText("0.00")
+        
+        self.historique_search.blockSignals(True)
+        self.historique_search.clear()
+        self.historique_search.blockSignals(False)
+        self.historique_risk_filter.blockSignals(True)
+        self.historique_risk_filter.setCurrentIndex(0)
+        self.historique_risk_filter.blockSignals(False)
+        self.render_historique_rows(rows)
+        
+    def filter_historique(self):
+        query = self.historique_search.text().strip().lower()
+        risk_choice = self.historique_risk_filter.currentText()
+ 
+        filtered = []
+        for row in self.historique_all_rows:
+            eval_id, nom, prenom, result, created_at, image_path, clinical_csv_path = row
+            full_name = f"{nom} {prenom}".lower()
+            risk_level = result.get("risk_level", "—")
+ 
+            if query and query not in full_name:
+                continue
+            if risk_choice != "Tous les risques" and risk_level != risk_choice:
+                continue
+            filtered.append(row)
+ 
+        self.render_historique_rows(filtered)
+        
+    def render_historique_rows(self, rows):
         has_rows = bool(rows)
         self.historique_empty_label.setVisible(not has_rows)
         self.historique_table.setVisible(has_rows)
-
+ 
         self.historique_table.setRowCount(len(rows))
-        self.historique_table.verticalHeader().setDefaultSectionSize(48)
-
+ 
         for row_idx, (eval_id, nom, prenom, result, created_at, image_path, clinical_csv_path) in enumerate(rows):
             score = result.get("score", "—")
             risk_level = result.get("risk_level", "—")
-
-            self.historique_table.setItem(row_idx, 0, QTableWidgetItem(f"{nom} {prenom}"))
+ 
+            self.historique_table.setCellWidget(row_idx, 0, self.create_patient_cell(nom, prenom))
             self.historique_table.setItem(row_idx, 1, QTableWidgetItem(created_at.strftime("%d/%m/%Y %H:%M")))
             self.historique_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
-
-            risk_item = QTableWidgetItem(risk_level)
-            risk_color = {"Faible": "#16a34a", "Modéré": "#f59e0b", "Élevé": "#dc2626"}.get(risk_level, "#374151")
-            risk_item.setForeground(QColor(risk_color))
-            self.historique_table.setItem(row_idx, 3, risk_item)
-
+            self.historique_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
+ 
             detail_button = QPushButton("Voir détail")
             detail_button.setCursor(Qt.CursorShape.PointingHandCursor)
             detail_button.setStyleSheet("""
@@ -1595,14 +1856,35 @@ class DashboardScreen(QWidget):
             """)
             detail_button.setFixedWidth(100)
             detail_button.setFixedHeight(28)
-
+ 
             row_data = {
                 "nom": nom, "prenom": prenom, "score": score, "risk_level": risk_level,
                 "created_at": created_at, "image_path": image_path, "clinical_csv_path": clinical_csv_path,
             }
             detail_button.clicked.connect(lambda checked, d=row_data: self.show_evaluation_detail(d))
             self.historique_table.setCellWidget(row_idx, 4, detail_button)
-            
+ 
+        self.update_historique_stats(rows)
+        
+        
+    def update_historique_stats(self, rows):
+        total = len(rows)
+        self.historique_count_label.setText(
+            f"{total} évaluation{'s' if total != 1 else ''} enregistrée{'s' if total != 1 else ''}"
+        )
+        self.historique_total_value.setText(str(total))
+ 
+        if total == 0:
+            self.historique_risk_value.setText("0")
+            self.historique_avg_value.setText("—")
+            return
+ 
+        elevated = sum(1 for r in rows if r[3].get("risk_level") == "Élevé")
+        self.historique_risk_value.setText(str(elevated))
+ 
+        scores = [r[3].get("score") for r in rows if isinstance(r[3].get("score"), (int, float))]
+        avg = round(sum(scores) / len(scores), 2) if scores else "—"
+        self.historique_avg_value.setText(str(avg))
             
     def show_evaluation_detail(self, data):
         dialog = QDialog(self)
@@ -1645,7 +1927,7 @@ class DashboardScreen(QWidget):
         files_row.setSpacing(10)
 
         if data["image_path"]:
-            img_btn = QPushButton("🔍 Voir l'IRM")
+            img_btn = QPushButton("Voir l'IRM")
             img_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             img_btn.setStyleSheet("""
                 QPushButton { background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;

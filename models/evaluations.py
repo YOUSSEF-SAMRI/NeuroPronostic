@@ -110,3 +110,26 @@ def get_evaluations_by_medecin(medecin_id):
     cur.close()
     conn.close()
     return rows
+
+
+def get_last_evaluation_by_patient(patient_id):
+    conn = get_connections()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT result
+        FROM evaluations
+        WHERE patient_id = %s
+        ORDER BY created_at DESC
+        LIMIT 1
+    """, (patient_id,))
+
+    row = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if row is None:
+        return None
+
+    return row[0]
