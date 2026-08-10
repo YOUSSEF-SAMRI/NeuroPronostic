@@ -1271,7 +1271,7 @@ class DashboardScreen(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Visualisation IRM")
-        dialog.resize(620, 700)
+        dialog.resize(650, 600)
         dialog.setStyleSheet("background-color: #f4f5f7;")
 
         layout = QVBoxLayout()
