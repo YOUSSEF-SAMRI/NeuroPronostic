@@ -3,6 +3,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QFrame, QFileDialog,
     QGraphicsDropShadowEffect, QMessageBox
 )
+from models.evaluation import fake_evaluate_prognosis
+from models.evaluations import add_evaluation
 from PyQt6.QtWidgets import QDialog, QSlider, QComboBox
 from PyQt6.QtWidgets import QScrollArea
 from PyQt6.QtWidgets import QStackedWidget
@@ -17,7 +19,7 @@ from ui.manage_users import ManageUsersScreen
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
 from ui.patient_dialog import AddPatientDialog
 from models.patients import add_patient, get_patients_by_medecin
-
+from models.evaluations import get_evaluations_by_medecin
 
 REQUIRED_CLINICAL_COLUMNS = [
                             "Center",
@@ -118,6 +120,9 @@ class DashboardScreen(QWidget):
         
         self.patient_detail_page = self.build_patient_detail_page()  
         self.content_stack.addWidget(self.patient_detail_page)
+        
+        self.historique_page = self.build_historique_page()   # ← nouvelle ligne, index 3
+        self.content_stack.addWidget(self.historique_page)     # ← nouvelle ligne
         
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.content_stack)
@@ -234,6 +239,7 @@ class DashboardScreen(QWidget):
         """)
         dashboard_button.clicked.connect(lambda: self.switch_page(0, dashboard_button))
         patients_button.clicked.connect(lambda: self.switch_page(1, patients_button))
+        historique_button.clicked.connect(lambda: self.switch_page(3, historique_button))
         logout_button.clicked.connect(self.handle_logout)
         sidebar_layout.addWidget(logout_button)
 
@@ -248,6 +254,8 @@ class DashboardScreen(QWidget):
 
         if index == 1:  # page Patients
             self.load_patients()
+        elif index == 3:
+            self.load_historique()
         
     def handle_logout(self):
         box = QMessageBox(self)
@@ -866,8 +874,28 @@ class DashboardScreen(QWidget):
     def run_patient_evaluation(self):
         pid = self.current_patient[0]
         uploads = self.patient_uploads[pid]
-        print(f"Analyse patient {pid} : {uploads['image']} + {uploads['clinical']}")
+        result = fake_evaluate_prognosis(uploads["image"], uploads["clinical"])
+        add_evaluation(
+            patient_id=pid,
+            image_path=uploads["image"],
+            clinical_csv_path=uploads["clinical"],
+            result=result,
+        )
+        self.display_evaluation_result(result)
         # ici fain an7et pipline
+        
+        
+    def display_evaluation_result(self, result):
+        risk_color = {"Faible": "#16a34a", "Modéré": "#f59e0b", "Élevé": "#dc2626"}.get(
+            result["risk_level"], "#374151"
+        )
+        self.patient_result_area.setText(
+            f"Score : {result['score']}\nNiveau de risque : {result['risk_level']}"
+        )
+        self.patient_result_area.setStyleSheet(f"""
+            background-color: white; border: 2px solid {risk_color};
+            border-radius: 12px; color: {risk_color}; font-size: 15px; font-weight: 700;
+        """)
 
     def select_file(self, button, file_filter, key , scope="dashboard"):
         file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "", file_filter)
@@ -1483,7 +1511,177 @@ class DashboardScreen(QWidget):
 
         layout.addWidget(table)
         dialog.exec()
-        
+
+
+    def build_historique_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(60, 50, 60, 50)
+        layout.setSpacing(20)
+        page.setLayout(layout)
+
+        title = QLabel("Historique des évaluations")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #374151;")
+        layout.addWidget(title)
+
+        # --- État vide ---
+        self.historique_empty_label = QLabel("Aucune évaluation pour l'instant.")
+        self.historique_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.historique_empty_label.setStyleSheet("color: #9ca3af; font-size: 14px; padding: 80px 0;")
+
+        # --- Tableau ---
+        self.historique_table = QTableWidget()
+        self.historique_table.setColumnCount(5)
+        self.historique_table.setHorizontalHeaderLabels(["Patient", "Date", "Score", "Risque", "Actions"])
+        self.historique_table.horizontalHeader().setStretchLastSection(True)
+        self.historique_table.setColumnWidth(0, 180)
+        self.historique_table.setColumnWidth(1, 150)
+        self.historique_table.setColumnWidth(2, 80)
+        self.historique_table.setColumnWidth(3, 100)
+        self.historique_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.historique_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.historique_table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: white; border: 1px solid #e5e7eb; border-radius: 8px;
+                gridline-color: #f3f4f6;
+            }}
+            QTableWidget::item {{ color: #111827; padding: 8px; border: none; }}
+            QTableWidget::item:selected {{ background-color: #f3f4f6; color: #111827; outline: none; }}
+            QHeaderView::section {{
+                background-color: #f9fafb; color: #374151; font-weight: 600;
+                padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
+            }}
+            {self.scrollbar_style}
+        """)
+        self.historique_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.historique_table.setVisible(False)
+
+        layout.addWidget(self.historique_empty_label)
+        layout.addWidget(self.historique_table)
+
+        return page
+
+
+    def load_historique(self):
+        rows = get_evaluations_by_medecin(self.user_id)
+        has_rows = bool(rows)
+        self.historique_empty_label.setVisible(not has_rows)
+        self.historique_table.setVisible(has_rows)
+
+        self.historique_table.setRowCount(len(rows))
+        self.historique_table.verticalHeader().setDefaultSectionSize(48)
+
+        for row_idx, (eval_id, nom, prenom, result, created_at, image_path, clinical_csv_path) in enumerate(rows):
+            score = result.get("score", "—")
+            risk_level = result.get("risk_level", "—")
+
+            self.historique_table.setItem(row_idx, 0, QTableWidgetItem(f"{nom} {prenom}"))
+            self.historique_table.setItem(row_idx, 1, QTableWidgetItem(created_at.strftime("%d/%m/%Y %H:%M")))
+            self.historique_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
+
+            risk_item = QTableWidgetItem(risk_level)
+            risk_color = {"Faible": "#16a34a", "Modéré": "#f59e0b", "Élevé": "#dc2626"}.get(risk_level, "#374151")
+            risk_item.setForeground(QColor(risk_color))
+            self.historique_table.setItem(row_idx, 3, risk_item)
+
+            detail_button = QPushButton("Voir détail")
+            detail_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            detail_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+                    border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+                }
+                QPushButton:hover { background-color: #dbeafe; }
+            """)
+            detail_button.setFixedWidth(100)
+            detail_button.setFixedHeight(28)
+
+            row_data = {
+                "nom": nom, "prenom": prenom, "score": score, "risk_level": risk_level,
+                "created_at": created_at, "image_path": image_path, "clinical_csv_path": clinical_csv_path,
+            }
+            detail_button.clicked.connect(lambda checked, d=row_data: self.show_evaluation_detail(d))
+            self.historique_table.setCellWidget(row_idx, 4, detail_button)
+            
+            
+    def show_evaluation_detail(self, data):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Détail de l'évaluation")
+        dialog.resize(420, 380)
+        dialog.setStyleSheet("background-color: #f4f5f7;")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+        dialog.setLayout(layout)
+
+        name_label = QLabel(f"{data['nom']} {data['prenom']}")
+        name_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #111827; background: transparent; border: none;")
+        layout.addWidget(name_label)
+
+        date_label = QLabel(data["created_at"].strftime("Évalué le %d/%m/%Y à %H:%M"))
+        date_label.setStyleSheet("color: #6b7280; font-size: 12px; background: transparent; border: none;")
+        layout.addWidget(date_label)
+
+        risk_color = {"Faible": "#16a34a", "Modéré": "#f59e0b", "Élevé": "#dc2626"}.get(data["risk_level"], "#374151")
+        result_frame = QFrame()
+        result_frame.setStyleSheet(f"""
+            background-color: white; border: 2px solid {risk_color}; border-radius: 12px;
+        """)
+        result_layout = QVBoxLayout()
+        result_layout.setContentsMargins(20, 16, 20, 16)
+        result_frame.setLayout(result_layout)
+
+        score_label = QLabel(f"Score : {data['score']}")
+        score_label.setStyleSheet(f"color: {risk_color}; font-size: 16px; font-weight: 700; background: transparent; border: none;")
+        risk_label = QLabel(f"Niveau de risque : {data['risk_level']}")
+        risk_label.setStyleSheet(f"color: {risk_color}; font-size: 14px; font-weight: 600; background: transparent; border: none;")
+        result_layout.addWidget(score_label)
+        result_layout.addWidget(risk_label)
+        layout.addWidget(result_frame)
+
+        # --- Accès aux fichiers utilisés pour cette évaluation ---
+        files_row = QHBoxLayout()
+        files_row.setSpacing(10)
+
+        if data["image_path"]:
+            img_btn = QPushButton("🔍 Voir l'IRM")
+            img_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            img_btn.setStyleSheet("""
+                QPushButton { background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+                    border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 600; }
+            QPushButton:hover { background-color: #dbeafe; }
+        """)
+            img_btn.clicked.connect(lambda: self.open_image_viewer(data["image_path"]))
+            files_row.addWidget(img_btn)
+
+        if data["clinical_csv_path"]:
+            csv_btn = QPushButton("Voir le CSV")
+            csv_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            csv_btn.setStyleSheet("""
+                QPushButton { background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+                    border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 600; }
+                QPushButton:hover { background-color: #dbeafe; }
+            """)
+            csv_btn.clicked.connect(lambda: self.open_csv_viewer(data["clinical_csv_path"]))
+            files_row.addWidget(csv_btn)
+
+        layout.addLayout(files_row)
+        layout.addStretch()
+        dialog.exec()
+
+
+
+
+
+
+
+
+
+
+
+
+
         
 if __name__ == "__main__":
     app = QApplication(sys.argv)
