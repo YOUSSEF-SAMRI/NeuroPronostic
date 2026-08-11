@@ -1862,7 +1862,22 @@ class DashboardScreen(QWidget):
         if key == "image":
             self.open_image_viewer(file_path)
         else:
-            self.open_csv_viewer(file_path)
+            modified_path = self.open_csv_viewer(file_path)
+
+            # Si le médecin a enregistré des modifications
+            if modified_path:
+                self.patient_uploads[pid]["clinical"] = modified_path
+
+                # Mettre à jour le nom affiché sur le bouton
+                self.patient_clinical_upload_button.setText(
+                    f"  {os.path.basename(modified_path)}"
+                )
+
+                # Mettre à jour l'aperçu
+                self.show_clinical_preview(modified_path)
+
+                # Vérifier que le bouton Evaluate est toujours à jour
+                self.update_patient_evaluate_button()
 
     def open_image_viewer(self, file_path):
         try:
@@ -2033,51 +2048,72 @@ class DashboardScreen(QWidget):
         table.setRowCount(len(df))
         table.setColumnCount(len(df.columns))
         table.setHorizontalHeaderLabels([str(c) for c in df.columns])
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setStyleSheet("""
-            QTableWidget {
-                background-color: white; border: 1px solid #e5e7eb; border-radius: 8px;
-                gridline-color: #f3f4f6;
-            }
-            QTableWidget::item { color: #111827; padding: 6px; }
-            QHeaderView::section {
-                background-color: #f9fafb; color: #374151; font-weight: 600;
-                padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
-            }
-        """)
+        table.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked |
+            QTableWidget.EditTrigger.EditKeyPressed
+        )
         table.setStyleSheet(f"""
-                            QTableWidget {{
-                                background-color: white; border: 1px solid #e5e7eb; border-radius: 8px;
-                                gridline-color: #f3f4f6;
-                            }}
-                            QTableWidget::item {{ color: #111827; padding: 6px; }}
-                            QHeaderView::section {{
-                                background-color: #f9fafb; color: #374151; font-weight: 600;
-                                padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
-                            }}
-                            {self.scrollbar_style}
-                            QScrollBar:horizontal {{
-                                background: transparent;
-                                height: 10px;
-                                margin: 0px 4px 2px 4px;
-                            }}
-                            QScrollBar::handle:horizontal {{
-                                background: #cbd5e1;
-                                border-radius: 5px;
-                                min-width: 30px;
-                            }}
-                            QScrollBar::handle:horizontal:hover {{
-                                background: #94a3b8;
-                            }}
-                            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-                                width: 0px;
-                                background: none;
-                                border: none;
-                            }}
-                            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
-                                background: none;
-                            }}
-                        """)
+            QTableWidget {{
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                gridline-color: #f3f4f6;
+            }}
+
+            QTableWidget::item {{
+                color: #111827;
+                padding: 6px;
+            }}
+
+            QTableWidget QLineEdit {{
+                background-color: white;
+                color: #111827;
+                border: 1px solid #2563eb;
+                border-radius: 4px;
+                padding: 2px 4px;
+                selection-background-color: #bfdbfe;
+                selection-color: #111827;
+            }}
+
+            QHeaderView::section {{
+                background-color: #f9fafb;
+                color: #374151;
+                font-weight: 600;
+                padding: 8px;
+                border: none;
+                border-bottom: 1px solid #e5e7eb;
+            }}
+
+            {self.scrollbar_style}
+
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 10px;
+                margin: 0px 4px 2px 4px;
+            }}
+
+            QScrollBar::handle:horizontal {{
+                background: #cbd5e1;
+                border-radius: 5px;
+                min-width: 30px;
+            }}
+
+            QScrollBar::handle:horizontal:hover {{
+                background: #94a3b8;
+            }}
+
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0px;
+                background: none;
+                border: none;
+            }}
+
+            QScrollBar::add-page:horizontal,
+            QScrollBar::sub-page:horizontal {{
+                background: none;
+            }}
+        """)
 
         for row in range(len(df)):
             for col in range(len(df.columns)):
@@ -2085,7 +2121,139 @@ class DashboardScreen(QWidget):
                 table.setItem(row, col, QTableWidgetItem(str(value)))
 
         layout.addWidget(table)
+        
+        
+        save_button = QPushButton("Enregistrer les modifications")
+        save_button.setFixedHeight(40)
+
+        save_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: 600;
+            }
+
+            QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+        """)
+
+        layout.addWidget(save_button)
+        saved_path = None
+    
+        def save_modified_csv():
+            try:
+                # Copie du DataFrame original
+                df_modified = df.copy()
+
+                # Récupérer les valeurs du tableau
+                for col in range(table.columnCount()):
+
+                    column_name = df.columns[col]
+
+                    # Récupérer toutes les valeurs de cette colonne
+                    values = []
+
+                    for row in range(table.rowCount()):
+                        item = table.item(row, col)
+
+                        if item is not None:
+                            values.append(item.text())
+                        else:
+                            values.append("")
+
+                    # Garder le type original de la colonne
+                    original_dtype = df[column_name].dtype
+
+                    if pd.api.types.is_numeric_dtype(original_dtype):
+                        # Convertir texte → nombre
+                        values = pd.to_numeric(values, errors="raise")
+
+                        # Reprendre le type original
+                        values = values.astype(original_dtype)
+
+                    # Mettre les valeurs dans le DataFrame
+                    df_modified[column_name] = values
+
+                # Nom du fichier modifié
+                import os
+
+                folder = os.path.dirname(file_path)
+                filename = os.path.basename(file_path)
+
+                name, extension = os.path.splitext(filename)
+
+                modified_path = os.path.join(
+                    folder,
+                    f"{name}_modified{extension}"
+                )
+                
+                nonlocal saved_path
+                saved_path = modified_path
+
+                # Sauvegarder
+                df_modified.to_csv(
+                    modified_path,
+                    index=False
+                )
+
+                msg = QMessageBox(dialog)
+                msg.setWindowTitle("Succès")
+                msg.setIcon(QMessageBox.Icon.Information)
+                msg.setText("Les modifications ont été enregistrées.")
+                msg.setInformativeText(f"Fichier : {modified_path}")
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+
+                msg.setStyleSheet("""
+                    QMessageBox {
+                        background-color: #f4f5f7;
+                    }
+
+                    QMessageBox QLabel {
+                        color: #111827;
+                        font-size: 13px;
+                    }
+
+                    QMessageBox QLabel#qt_msgbox_label {
+                        color: #111827;
+                        font-size: 15px;
+                        font-weight: 600;
+                    }
+
+                    QPushButton {
+                        background-color: #2563eb;
+                        color: white;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 8px 25px;
+                        min-width: 70px;
+                        font-weight: 600;
+                    }
+
+                    QPushButton:hover {
+                        background-color: #1d4ed8;
+                    }
+
+                    QPushButton:pressed {
+                        background-color: #1e40af;
+                    }
+                """)
+
+                msg.exec()
+
+                dialog.accept()
+
+            except Exception as e:
+                self.show_error_message(
+                    "Erreur",
+                    f"Impossible d'enregistrer les modifications :\n{e}"
+                )
+
+        save_button.clicked.connect(save_modified_csv)
         dialog.exec()
+        return saved_path
 
 
     def build_historique_page(self):

@@ -68,7 +68,7 @@ class AddPatientDialog(QDialog):
         layout.addWidget(self.prenom_input)
         layout.addSpacing(8)
 
-        layout.addWidget(self._make_label("Âge"))
+        layout.addWidget(self._make_label("Age"))
         self.age_input = QLineEdit()
         self.age_input.setPlaceholderText("Ex : 45")
         layout.addWidget(self.age_input)
