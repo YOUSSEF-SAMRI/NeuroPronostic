@@ -23,8 +23,10 @@ from models.evaluations import get_evaluations_by_medecin
 from models.evaluations import (
     add_evaluation,
     get_evaluations_by_medecin,
-    get_last_evaluation_by_patient,soft_delete_evaluation
+    get_last_evaluation_by_patient,soft_delete_evaluation, check_recent_duplicate
 )
+from datetime import datetime
+
 
 REQUIRED_CLINICAL_COLUMNS = [
                             "Center",
@@ -564,9 +566,6 @@ class DashboardScreen(QWidget):
         layout.setSpacing(18)
         page.setLayout(layout)
 
-        # ==========================================================
-        # HEADER
-        # ==========================================================
 
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
@@ -632,9 +631,6 @@ class DashboardScreen(QWidget):
 
         layout.addLayout(header_layout)
 
-        # ==========================================================
-        # BARRE RECHERCHE + FILTRE + TOTAL
-        # ==========================================================
 
         filters_card = QFrame()
         filters_card.setStyleSheet("""
@@ -682,9 +678,6 @@ class DashboardScreen(QWidget):
 
         filters_layout.addWidget(self.search_input)
 
-        # -------------------------
-        # Filtre sexe
-        # -------------------------
 
         self.gender_filter = QComboBox()
         self.gender_filter.setFixedHeight(42)
@@ -733,10 +726,6 @@ class DashboardScreen(QWidget):
         filters_layout.addWidget(self.gender_filter)
 
         filters_layout.addStretch()
-
-        # -------------------------
-        # Total patients
-        # -------------------------
 
         total_card = QFrame()
         total_card.setFixedSize(150, 58)
@@ -789,10 +778,6 @@ class DashboardScreen(QWidget):
 
         layout.addWidget(filters_card)
 
-        # ==========================================================
-        # CARTE TABLEAU
-        # ==========================================================
-
         table_card = QFrame()
         table_card.setStyleSheet("""
             QFrame {
@@ -806,10 +791,6 @@ class DashboardScreen(QWidget):
         table_layout.setContentsMargins(0, 0, 0, 0)
         table_layout.setSpacing(0)
         table_card.setLayout(table_layout)
-
-        # ==========================================================
-        # EMPTY STATE
-        # ==========================================================
 
         self.empty_state_label = QLabel(
             "Aucun patient pour l'instant.\n"
@@ -829,10 +810,6 @@ class DashboardScreen(QWidget):
         """)
 
         self.empty_state_label.setVisible(False)
-
-        # ==========================================================
-        # TABLE
-        # ==========================================================
 
         self.patients_table = QTableWidget()
 
@@ -938,9 +915,6 @@ class DashboardScreen(QWidget):
         table_layout.addWidget(self.empty_state_label)
         table_layout.addWidget(self.patients_table)
 
-        # ==========================================================
-        # PAGINATION
-        # ==========================================================
 
         pagination_container = QFrame()
         pagination_container.setStyleSheet("""
@@ -1110,16 +1084,7 @@ class DashboardScreen(QWidget):
 
         layout.addWidget(table_card, stretch=1)
 
-        return page
-    
-    # def refresh_patients_display(self, patients=None):
-    #     """patients: liste de tuples venant de la DB. None ou [] = aucun patient."""
-    #     if not patients:
-    #         self.empty_state_label.setVisible(True)
-    #         self.patients_table.setVisible(False)
-    #     else:
-    #         self.empty_state_label.setVisible(False)
-    #         self.patients_table.setVisible(True)
+        return page   
 
     def open_add_patient_dialog(self):
         dialog = AddPatientDialog(self)
@@ -1267,10 +1232,6 @@ class DashboardScreen(QWidget):
 
             id_, nom, prenom, age, sexe, created_at = patient
 
-            # ---------------------------------
-            # #
-            # ---------------------------------
-
             number_item = QTableWidgetItem(
                 str(start + row + 1)
             )
@@ -1287,29 +1248,17 @@ class DashboardScreen(QWidget):
                 row, 0, number_item
             )
 
-            # ---------------------------------
-            # Nom
-            # ---------------------------------
-
             self.patients_table.setItem(
                 row,
                 1,
                 QTableWidgetItem(str(nom))
             )
 
-            # ---------------------------------
-            # Prénom
-            # ---------------------------------
-
             self.patients_table.setItem(
                 row,
                 2,
                 QTableWidgetItem(str(prenom))
             )
-
-            # ---------------------------------
-            # Âge
-            # ---------------------------------
 
             age_item = QTableWidgetItem(str(age))
             age_item.setTextAlignment(
@@ -1319,10 +1268,6 @@ class DashboardScreen(QWidget):
             self.patients_table.setItem(
                 row, 3, age_item
             )
-
-            # ---------------------------------
-            # Sexe
-            # ---------------------------------
 
             sexe_text = "M" if sexe == "M" else "F"
 
@@ -1336,10 +1281,6 @@ class DashboardScreen(QWidget):
                 row, 4, sexe_item
             )
 
-            # ---------------------------------
-            # Date
-            # ---------------------------------
-
             date_item = QTableWidgetItem(
                 created_at.strftime("%d/%m/%Y")
             )
@@ -1347,10 +1288,6 @@ class DashboardScreen(QWidget):
             self.patients_table.setItem(
                 row, 5, date_item
             )
-
-            # ---------------------------------
-            # Bouton Afficher
-            # ---------------------------------
 
             show_button = QPushButton("Afficher")
 
@@ -1392,11 +1329,7 @@ class DashboardScreen(QWidget):
                 6,
                 show_button
             )
-
-        # ---------------------------------
-        # Pagination
-        # ---------------------------------
-
+            
         self.page_label.setText(
             str(self.current_page)
         )
@@ -1458,7 +1391,6 @@ class DashboardScreen(QWidget):
         if result:
             self.display_evaluation_result(result)
         else:
-            # Aucun résultat pour ce patient
             self.patient_result_area.setText(
                 "Aucune évaluation pour l'instant."
             )
@@ -1495,6 +1427,13 @@ class DashboardScreen(QWidget):
     def run_patient_evaluation(self):
         pid = self.current_patient[0]
         uploads = self.patient_uploads[pid]
+        
+        existing = check_recent_duplicate(pid, uploads["image"], uploads["clinical"], hours=48)
+        if existing:
+            proceed = self.confirm_duplicate_evaluation(existing)
+            if not proceed:
+                return  
+        
         result = fake_evaluate_prognosis(uploads["image"], uploads["clinical"])
         add_evaluation(
             patient_id=pid,
@@ -1718,15 +1657,30 @@ class DashboardScreen(QWidget):
 
         # header retour + patient info
         top_bar = QHBoxLayout()
-        back_button = QPushButton("←  Retour")
+        back_button = QPushButton(" Retour")
         back_button.setCursor(Qt.CursorShape.PointingHandCursor)
         back_button.setStyleSheet("""
-            QPushButton {
-                background: none; border: none; color: #2563eb;
-                font-size: 13px; font-weight: 600; text-align: left;
-            }
-            QPushButton:hover { color: #1d4ed8; }
-        """)
+                    QPushButton {
+                        background-color: #f3f4f6;
+                        color: #2563eb;
+                        border: 1px solid #dbeafe;
+                        border-radius: 8px;
+                        padding: 8px 14px;
+                        font-size: 13px;
+                        font-weight: 600;
+                        text-align: center;
+                    }
+
+                    QPushButton:hover {
+                        background-color: #eff6ff;
+                        color: #1d4ed8;
+                        border: 1px solid #bfdbfe;
+                    }
+
+                    QPushButton:pressed {
+                        background-color: #dbeafe;
+                    }
+                """)
         back_button.clicked.connect(lambda: self.content_stack.setCurrentIndex(1))
         top_bar.addWidget(back_button)
         top_bar.addStretch()
@@ -2141,7 +2095,7 @@ class DashboardScreen(QWidget):
         layout.setSpacing(20)
         page.setLayout(layout)
  
-        # --- Header : titre + sous-titre ---
+        # header : titre + sous-titre 
         header_layout = QHBoxLayout()
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
@@ -2443,8 +2397,6 @@ class DashboardScreen(QWidget):
             self.historique_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
             self.historique_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
             
-            
-            
             # ////////////////////////////////////////////////
             
             actions_widget = QWidget()
@@ -2656,7 +2608,7 @@ class DashboardScreen(QWidget):
         result_layout.addWidget(risk_label)
         layout.addWidget(result_frame)
 
-        # --- Accès aux fichiers utilisés pour cette évaluation ---
+        #  acces aux fichiers utilises pour cette evaluation
         files_row = QHBoxLayout()
         files_row.setSpacing(10)
 
@@ -2687,6 +2639,38 @@ class DashboardScreen(QWidget):
         dialog.exec()
 
 
+    def confirm_duplicate_evaluation(self, existing_eval):
+        eval_id, result, created_at = existing_eval
+        score = result.get("score", "—")
+        risk_level = result.get("risk_level", "—")
+
+        hours_ago = int((datetime.now() - created_at).total_seconds() // 3600)
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Évaluation récente détectée")
+        box.setText(
+            f"Une évaluation identique existe déjà pour ce patient, "
+            f"réalisée il y a {hours_ago}h avec un score de {score} ({risk_level}).\n\n"
+            f"Voulez-vous quand même relancer une nouvelle évaluation ?"
+        )
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        box.setStyleSheet("""
+            QMessageBox { min-width: 380px; }
+            QMessageBox QLabel { color: #1f2937; font-size: 13px; }
+            QPushButton {
+                background-color: #f3f4f6; color: #111827; border: 1px solid #d1d5db;
+                border-radius: 6px; padding: 6px 18px; min-width: 70px;
+            }
+            QPushButton:hover { background-color: #e5e7eb; }
+            QPushButton:default {
+                background-color: #f59e0b; color: white; border: none;
+            }
+            QPushButton:default:hover { background-color: #d97706; }
+        """)
+        answer = box.exec()
+        return answer == QMessageBox.StandardButton.Yes
 
 
 

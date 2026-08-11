@@ -1,8 +1,8 @@
 import json
 import pandas as pd
-from models.database import get_connections  # même import que patients.py
+from models.database import get_connections  
 import numpy as np
-
+from datetime import timedelta
 
 CSV_TO_DB_COLUMNS = {
     "Center": "center",
@@ -151,3 +151,28 @@ def soft_delete_evaluation(evaluation_id):
 
     cur.close()
     conn.close()
+    
+
+
+def check_recent_duplicate(patient_id, image_path, clinical_csv_path, hours=48):
+    """
+    Vérifie si une évaluation identique (mêmes fichiers) existe déjà
+    pour ce patient dans la fenêtre de temps donnée.
+    Retourne la ligne existante (dict-like) si trouvée, sinon None.
+    """
+    conn = get_connections()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, result, created_at
+        FROM evaluations
+        WHERE patient_id = %s
+          AND image_path = %s
+          AND clinical_csv_path = %s
+          AND created_at > NOW() - INTERVAL '%s hours'
+        ORDER BY created_at DESC
+        LIMIT 1
+    """, (patient_id, image_path, clinical_csv_path, hours))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row
