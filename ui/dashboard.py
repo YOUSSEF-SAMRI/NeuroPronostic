@@ -23,7 +23,7 @@ from models.evaluations import get_evaluations_by_medecin
 from models.evaluations import (
     add_evaluation,
     get_evaluations_by_medecin,
-    get_last_evaluation_by_patient
+    get_last_evaluation_by_patient,soft_delete_evaluation
 )
 
 REQUIRED_CLINICAL_COLUMNS = [
@@ -557,180 +557,558 @@ class DashboardScreen(QWidget):
     
     def build_patients_page(self):
         page = QWidget()
+        page.setStyleSheet("background-color: #f4f5f7;")
+
         layout = QVBoxLayout()
-        layout.setContentsMargins(60, 50, 60, 50)
-        layout.setSpacing(20)
+        layout.setContentsMargins(60, 40, 60, 40)
+        layout.setSpacing(18)
         page.setLayout(layout)
 
-        header_layout = QHBoxLayout()
-        title = QLabel("Mes patients")
-        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #374151;")
+        # ==========================================================
+        # HEADER
+        # ==========================================================
 
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
+        title_container = QVBoxLayout()
+        title_container.setSpacing(4)
+
+        title = QLabel("Mes patients")
+        title.setStyleSheet("""
+            QLabel {
+                color: #172554;
+                font-size: 28px;
+                font-weight: 700;
+                background: transparent;
+            }
+        """)
+
+        subtitle = QLabel(
+            "Gérez la liste des patients enregistrés dans le système."
+        )
+        subtitle.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 13px;
+                background: transparent;
+            }
+        """)
+
+        title_container.addWidget(title)
+        title_container.addWidget(subtitle)
+
+        header_layout.addLayout(title_container)
+        header_layout.addStretch()
+
+        # Bouton ajouter
         add_button = QPushButton("  Ajouter un patient")
         add_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        add_button.setFixedHeight(40)
+        add_button.setFixedHeight(44)
+
         add_button.setStyleSheet("""
             QPushButton {
                 background-color: #2563eb;
                 color: white;
                 border: none;
-                border-radius: 8px;
-                padding: 8px 18px;
-                font-weight: 600;
+                border-radius: 9px;
+                padding: 0px 20px;
                 font-size: 13px;
+                font-weight: 600;
             }
+
             QPushButton:hover {
                 background-color: #1d4ed8;
             }
+
+            QPushButton:pressed {
+                background-color: #1e40af;
+            }
         """)
+
         add_button.clicked.connect(self.open_add_patient_dialog)
 
-        
-        header_layout.addWidget(title)
-        header_layout.addStretch()
         header_layout.addWidget(add_button)
+
         layout.addLayout(header_layout)
 
-        # etat vide
-        self.empty_state_label = QLabel("Aucun patient pour l'instant.\nCliquez sur \"Ajouter un patient\" pour commencer.")
+        # ==========================================================
+        # BARRE RECHERCHE + FILTRE + TOTAL
+        # ==========================================================
+
+        filters_card = QFrame()
+        filters_card.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+            }
+        """)
+
+        filters_layout = QHBoxLayout()
+        filters_layout.setContentsMargins(20, 16, 20, 16)
+        filters_layout.setSpacing(16)
+        filters_card.setLayout(filters_layout)
+
+        # -------------------------
+        # Recherche
+        # -------------------------
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Rechercher un patient...")
+        self.search_input.setFixedHeight(42)
+        self.search_input.setMinimumWidth(300)
+
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                background-color: white;
+                border: 1px solid #dbe2ea;
+                border-radius: 8px;
+                padding: 0px 14px;
+                color: #1e293b;
+                font-size: 13px;
+            }
+
+            QLineEdit:focus {
+                border: 1px solid #2563eb;
+            }
+
+            QLineEdit::placeholder {
+                color: #94a3b8;
+            }
+        """)
+
+        self.search_input.textChanged.connect(self.apply_patient_filters)
+
+        filters_layout.addWidget(self.search_input)
+
+        # -------------------------
+        # Filtre sexe
+        # -------------------------
+
+        self.gender_filter = QComboBox()
+        self.gender_filter.setFixedHeight(42)
+        self.gender_filter.setMinimumWidth(210)
+
+        self.gender_filter.addItem("Tous les sexes", "all")
+        self.gender_filter.addItem("Homme", "M")
+        self.gender_filter.addItem("Femme", "F")
+
+        self.gender_filter.setStyleSheet("""
+            QComboBox {
+                background-color: transparent;
+                border: 1px solid #dbe2ea;
+                border-radius: 8px;
+                padding: 0px 12px;
+                color: #334155;
+                font-size: 13px;
+            }
+
+            QComboBox:hover {
+                border: 1px solid #94a3b8;
+            }
+
+            QComboBox:focus {
+                border: 1px solid #2563eb;
+            }
+
+            QComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+
+            QComboBox QAbstractItemView {
+                background-color: white;
+                color: #334155;
+                selection-background-color: #eff6ff;
+                selection-color: #2563eb;
+                border: 1px solid #e5e7eb;
+            }
+        """)
+
+        self.gender_filter.currentIndexChanged.connect(
+            self.apply_patient_filters
+        )
+
+        filters_layout.addWidget(self.gender_filter)
+
+        filters_layout.addStretch()
+
+        # -------------------------
+        # Total patients
+        # -------------------------
+
+        total_card = QFrame()
+        total_card.setFixedSize(150, 58)
+
+        total_card.setStyleSheet("""
+            QFrame {
+                background-color: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+            }
+        """)
+
+        total_layout = QHBoxLayout()
+        total_layout.setContentsMargins(12, 8, 12, 8)
+        total_card.setLayout(total_layout)
+
+
+
+
+        total_text_layout = QVBoxLayout()
+        total_text_layout.setSpacing(0)
+
+        total_title = QLabel("Total patients")
+        total_title.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 11px;
+                border: none;
+                background: transparent;
+            }
+        """)
+
+        self.total_patients_label = QLabel("0")
+        self.total_patients_label.setStyleSheet("""
+            QLabel {
+                color: #172554;
+                font-size: 17px;
+                font-weight: 700;
+                border: none;
+                background: transparent;
+            }
+        """)
+
+        total_text_layout.addWidget(total_title)
+        total_text_layout.addWidget(self.total_patients_label)
+
+        total_layout.addLayout(total_text_layout)
+
+        filters_layout.addWidget(total_card)
+
+        layout.addWidget(filters_card)
+
+        # ==========================================================
+        # CARTE TABLEAU
+        # ==========================================================
+
+        table_card = QFrame()
+        table_card.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+            }
+        """)
+
+        table_layout = QVBoxLayout()
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(0)
+        table_card.setLayout(table_layout)
+
+        # ==========================================================
+        # EMPTY STATE
+        # ==========================================================
+
+        self.empty_state_label = QLabel(
+            "Aucun patient pour l'instant.\n"
+            "Cliquez sur « Ajouter un patient » pour commencer."
+        )
+
         self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_state_label.setStyleSheet("color: #9ca3af; font-size: 14px; padding: 80px 0;")
 
-        # table
+        self.empty_state_label.setStyleSheet("""
+            QLabel {
+                color: #94a3b8;
+                font-size: 14px;
+                padding: 70px;
+                background-color: white;
+                border: none;
+            }
+        """)
+
+        self.empty_state_label.setVisible(False)
+
+        # ==========================================================
+        # TABLE
+        # ==========================================================
+
         self.patients_table = QTableWidget()
-        self.patients_table.setColumnCount(6)
-        self.patients_table.setHorizontalHeaderLabels(["Nom", "Prénom", "Age", "Sexe", "Date d'ajout", "Actions"])
+
+        # 7 colonnes maintenant
+        self.patients_table.setColumnCount(7)
+
+        self.patients_table.setHorizontalHeaderLabels([
+            "#",
+            "Nom",
+            "Prénom",
+            "Age",
+            "Sexe",
+            "Date d'ajout",
+            "Actions"
+        ])
+
+        self.patients_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+
+        self.patients_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+
+        self.patients_table.setSelectionMode(
+            QTableWidget.SelectionMode.SingleSelection
+        )
+
+        self.patients_table.setFocusPolicy(
+            Qt.FocusPolicy.NoFocus
+        )
+
+        self.patients_table.verticalHeader().setVisible(False)
         self.patients_table.horizontalHeader().setStretchLastSection(True)
-        self.patients_table.setColumnWidth(0, 150)  # Nom
-        self.patients_table.setColumnWidth(1, 150)  # Prénom
-        self.patients_table.setColumnWidth(2, 80)   # Âge
-        self.patients_table.setColumnWidth(3, 80)   # Sexe
-        self.patients_table.setColumnWidth(4, 150)  # Date d'ajout
-        self.patients_table.setColumnWidth(5, 120)  # Actions
-        self.patients_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.patients_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        # Largeurs
+        self.patients_table.setColumnWidth(0, 55)
+        self.patients_table.setColumnWidth(1, 170)
+        self.patients_table.setColumnWidth(2, 170)
+        self.patients_table.setColumnWidth(3, 80)
+        self.patients_table.setColumnWidth(4, 90)
+        self.patients_table.setColumnWidth(5, 150)
+
         self.patients_table.setStyleSheet("""
-    QTableWidget {
-        background-color: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        gridline-color: #f3f4f6;
-    }
-    QTableWidget::item {
-        color: #111827;
-        padding: 8px;
-        border: none;
-    }
-    QTableWidget::item:selected {
-        background-color: #f3f4f6;
-        color: #111827;
-        outline: none;
+            QTableWidget {
+                background-color: white;
+                border: none;
+                gridline-color: #eef2f7;
+                color: #1e293b;
+                font-size: 13px;
+            }
 
-    }
-    QHeaderView::section {
-        background-color: #f9fafb;
-        color: #374151;
-        font-weight: 600;
-        padding: 8px;
-        border: none;
-        border-bottom: 1px solid #e5e7eb;
-    }
-     QScrollBar:vertical {
-        background: transparent;
-        width: 10px;
-        margin: 4px 2px 4px 0px;
-    }
-    QScrollBar::handle:vertical {
-        background: #cbd5e1;
-        border-radius: 5px;
-        min-height: 30px;
-    }
-    QScrollBar::handle:vertical:hover {
-        background: #94a3b8;
-    }
-    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-        height: 0px;
-        background: none;
-        border: none;
-    }
-    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-        background: none;
-    }
+            QTableWidget::item {
+                padding: 8px;
+                border: none;
+                color: #1e293b;
+            }
 
-    QScrollBar:horizontal {
-        background: transparent;
-        height: 10px;
-        margin: 0px 4px 2px 4px;
-    }
-    QScrollBar::handle:horizontal {
-        background: #cbd5e1;
-        border-radius: 5px;
-        min-width: 30px;
-    }
-    QScrollBar::handle:horizontal:hover {
-        background: #94a3b8;
-    }
-    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-        width: 0px;
-        background: none;
-        border: none;
-    }
-    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-        background: none;
-    }
+            QTableWidget::item:selected {
+                background-color: #eff6ff;
+                color: #1e293b;
+            }
 
-    """)
-        self.patients_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            QHeaderView::section {
+                background-color: #f8fafc;
+                color: #334155;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 12px 8px;
+                border: none;
+                border-bottom: 1px solid #e5e7eb;
+            }
+
+            QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+                margin: 4px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: #cbd5e1;
+                border-radius: 4px;
+                min-height: 30px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background: #94a3b8;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+        """)
+
         self.patients_table.setVisible(False)
-        
+
+        table_layout.addWidget(self.empty_state_label)
+        table_layout.addWidget(self.patients_table)
+
+        # ==========================================================
+        # PAGINATION
+        # ==========================================================
+
+        pagination_container = QFrame()
+        pagination_container.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: none;
+                border-top: 1px solid #eef2f7;
+            }
+        """)
 
         pagination_layout = QHBoxLayout()
-        pagination_layout.setContentsMargins(0, 10, 0, 0)
+        pagination_layout.setContentsMargins(20, 12, 20, 12)
+        pagination_layout.setSpacing(8)
 
-        self.prev_button = QPushButton("←  Précédent")
-        self.next_button = QPushButton("Suivant  →")
-        self.page_label = QLabel("Page 1 / 1")
+        pagination_container.setLayout(pagination_layout)
+
+        # Lignes par page
+
+        lines_label = QLabel("Lignes par page :")
+        lines_label.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 12px;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        self.page_size_combo = QComboBox()
+        self.page_size_combo.setFixedSize(75, 34)
+
+        self.page_size_combo.addItem("10", 10)
+        self.page_size_combo.addItem("20", 20)
+        self.page_size_combo.addItem("50", 50)
+
+        self.page_size_combo.setStyleSheet("""
+            QComboBox {
+                background-color: white;
+                color: #334155;
+                border: 1px solid #dbe2ea;
+                border-radius: 7px;
+                padding: 0px 8px;
+                font-size: 12px;
+            }
+
+            QComboBox:hover {
+                border: 1px solid #94a3b8;
+            }
+
+            QComboBox:focus {
+                border: 1px solid #2563eb;
+            }
+
+            QComboBox::drop-down {
+                border: none;
+                width: 22px;
+            }
+
+            QComboBox QAbstractItemView {
+                background-color: white;
+                color: #334155;
+                border: 1px solid #dbe2ea;
+                selection-background-color: #eff6ff;
+                selection-color: #2563eb;
+                padding: 4px;
+                outline: none;
+            }
+
+            QComboBox QAbstractItemView::item {
+                color: #334155;
+                background-color: white;
+                padding: 8px;
+            }
+
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #eff6ff;
+                color: #2563eb;
+            }
+        """)
+
+        self.page_size_combo.currentIndexChanged.connect(
+            self.change_page_size
+        )
+
+        pagination_layout.addWidget(lines_label)
+        pagination_layout.addWidget(self.page_size_combo)
+
+        pagination_layout.addStretch()
+
+        # Previous
+
+        self.prev_button = QPushButton("‹")
+        self.prev_button.setFixedSize(38, 36)
+
+        # Numéro de page
+
+        self.page_label = QLabel("1")
+        self.page_label.setFixedSize(38, 36)
+        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Next
+
+        self.next_button = QPushButton("›")
+        self.next_button.setFixedSize(38, 36)
 
         pagination_button_style = """
             QPushButton {
                 background-color: white;
-                color: #374151;
-                border: 1px solid #e5e7eb;
-                border-radius: 6px;
-                padding: 6px 14px;
-                font-size: 12px;
-                font-weight: 600;
+                color: #64748b;
+                border: 1px solid #dbe2ea;
+                border-radius: 8px;
+                font-size: 18px;
+                font-weight: 500;
             }
+
             QPushButton:hover {
-                background-color: #f3f4f6;
+                background-color: #eff6ff;
+                color: #2563eb;
+                border-color: #bfdbfe;
             }
+
             QPushButton:disabled {
-                color: #d1d5db;
-                background-color: #f9fafb;
+                background-color: #f8fafc;
+                color: #cbd5e1;
+                border-color: #e5e7eb;
             }
         """
+
         self.prev_button.setStyleSheet(pagination_button_style)
         self.next_button.setStyleSheet(pagination_button_style)
+
+        self.page_label.setStyleSheet("""
+            QLabel {
+                background-color: #2563eb;
+                color: white;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+        """)
+
         self.prev_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.next_button.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self.page_label.setStyleSheet("color: #6b7280; font-size: 13px; font-weight: 500;")
-        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.prev_button.clicked.connect(self.go_to_previous_page)
         self.next_button.clicked.connect(self.go_to_next_page)
 
-        pagination_layout.addStretch()
         pagination_layout.addWidget(self.prev_button)
         pagination_layout.addWidget(self.page_label)
         pagination_layout.addWidget(self.next_button)
+
         pagination_layout.addStretch()
 
-        layout.addLayout(pagination_layout)
+        self.page_info_label = QLabel("Page 1 sur 1")
+        self.page_info_label.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 12px;
+                background: transparent;
+                border: none;
+            }
+        """)
 
-        layout.addWidget(self.empty_state_label)
-        layout.addWidget(self.patients_table)
-        
+        pagination_layout.addWidget(self.page_info_label)
+
+        table_layout.addWidget(pagination_container)
+
+        layout.addWidget(table_card, stretch=1)
 
         return page
     
@@ -756,69 +1134,289 @@ class DashboardScreen(QWidget):
     
     
     def load_patients(self):
-        self.all_patients = get_patients_by_medecin(self.user_id)
+        self.all_patients = get_patients_by_medecin(
+        self.user_id
+        )
+
+        self.filtered_patients = list(
+            self.all_patients
+        )
+
         self.current_page = 1
+
+        self.render_page()
+        
+    def apply_patient_filters(self):
+
+        query = self.search_input.text().strip().lower()
+
+        selected_gender = self.gender_filter.currentData()
+
+        self.filtered_patients = []
+
+        for patient in self.all_patients:
+
+            id_, nom, prenom, age, sexe, created_at = patient
+
+            # Recherche nom + prénom
+            full_name = f"{nom} {prenom}".lower()
+
+            matches_search = (
+                query in full_name
+            )
+
+            # Filtre sexe
+            matches_gender = (
+                selected_gender == "all"
+                or sexe == selected_gender
+            )
+
+            if matches_search and matches_gender:
+                self.filtered_patients.append(
+                    patient
+                )
+
+        self.current_page = 1
+
         self.render_page()
 
     def refresh_patients_display(self, patients=None):
-        """patients: liste de tuples venant de la DB. None ou [] = aucun patient."""
-        has_patients = bool(self.all_patients)
-        self.empty_state_label.setVisible(not has_patients)
-        self.patients_table.setVisible(has_patients)
-        self.prev_button.setVisible(has_patients)
-        self.next_button.setVisible(has_patients)
-        self.page_label.setVisible(has_patients)
+
+        has_patients = bool(
+            self.filtered_patients
+        )
+
+        self.empty_state_label.setVisible(
+            not has_patients
+        )
+
+        self.patients_table.setVisible(
+            has_patients
+        )
+
+        self.prev_button.setVisible(
+            has_patients
+        )
+
+        self.next_button.setVisible(
+            has_patients
+        )
+
+        self.page_label.setVisible(
+            has_patients
+        )
+
+        self.page_info_label.setVisible(
+            has_patients
+        )
+
+        self.total_patients_label.setText(
+            str(len(self.all_patients))
+        )
+
+        if not self.all_patients:
+
+            self.empty_state_label.setText(
+                "Aucun patient pour l'instant.\n"
+                "Cliquez sur « Ajouter un patient » "
+                "pour commencer."
+            )
+
+        elif not self.filtered_patients:
+
+            self.empty_state_label.setText(
+                "Aucun patient ne correspond à votre recherche."
+            )
 
     def total_pages(self):
-        if not self.all_patients:
+        if not self.filtered_patients:
             return 1
-        return (len(self.all_patients) - 1) // self.page_size + 1
+
+        return (
+            (len(self.filtered_patients) - 1)
+            // self.page_size
+        ) + 1
+        
+    def change_page_size(self):
+
+        self.page_size = self.page_size_combo.currentData()
+
+        self.current_page = 1
+
+        self.render_page()
 
     def render_page(self):
         self.refresh_patients_display()
 
         total = self.total_pages()
-        self.current_page = max(1, min(self.current_page, total))
+
+        self.current_page = max(
+            1,
+            min(self.current_page, total)
+        )
 
         start = (self.current_page - 1) * self.page_size
         end = start + self.page_size
-        page_patients = self.all_patients[start:end]
+
+        page_patients = self.filtered_patients[start:end]
 
         self.patients_table.setRowCount(len(page_patients))
-        self.patients_table.verticalHeader().setDefaultSectionSize(48)
+        self.patients_table.verticalHeader().setDefaultSectionSize(58)
 
         for row, patient in enumerate(page_patients):
+
             id_, nom, prenom, age, sexe, created_at = patient
-            self.patients_table.setItem(row, 0, QTableWidgetItem(nom))
-            self.patients_table.setItem(row, 1, QTableWidgetItem(prenom))
-            self.patients_table.setItem(row, 2, QTableWidgetItem(str(age)))
-            self.patients_table.setItem(row, 3, QTableWidgetItem(sexe))
-            self.patients_table.setItem(row, 4, QTableWidgetItem(created_at.strftime("%d/%m/%Y")))
+
+            # ---------------------------------
+            # #
+            # ---------------------------------
+
+            number_item = QTableWidgetItem(
+                str(start + row + 1)
+            )
+
+            number_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            number_item.setForeground(
+                QColor("#64748b")
+            )
+
+            self.patients_table.setItem(
+                row, 0, number_item
+            )
+
+            # ---------------------------------
+            # Nom
+            # ---------------------------------
+
+            self.patients_table.setItem(
+                row,
+                1,
+                QTableWidgetItem(str(nom))
+            )
+
+            # ---------------------------------
+            # Prénom
+            # ---------------------------------
+
+            self.patients_table.setItem(
+                row,
+                2,
+                QTableWidgetItem(str(prenom))
+            )
+
+            # ---------------------------------
+            # Âge
+            # ---------------------------------
+
+            age_item = QTableWidgetItem(str(age))
+            age_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            self.patients_table.setItem(
+                row, 3, age_item
+            )
+
+            # ---------------------------------
+            # Sexe
+            # ---------------------------------
+
+            sexe_text = "M" if sexe == "M" else "F"
+
+            sexe_item = QTableWidgetItem(sexe_text)
+
+            sexe_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            self.patients_table.setItem(
+                row, 4, sexe_item
+            )
+
+            # ---------------------------------
+            # Date
+            # ---------------------------------
+
+            date_item = QTableWidgetItem(
+                created_at.strftime("%d/%m/%Y")
+            )
+
+            self.patients_table.setItem(
+                row, 5, date_item
+            )
+
+            # ---------------------------------
+            # Bouton Afficher
+            # ---------------------------------
 
             show_button = QPushButton("Afficher")
-            show_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            show_button.setCursor(
+                Qt.CursorShape.PointingHandCursor
+            )
+
+            show_button.setFixedHeight(34)
+            show_button.setMinimumWidth(105)
+
             show_button.setStyleSheet("""
                 QPushButton {
                     background-color: #eff6ff;
                     color: #2563eb;
-                    border: 1px solid #bfdbfe;
-                    border-radius: 6px;
-                    padding: 4px 12px;
+                    border: 1px solid #dbeafe;
+                    border-radius: 8px;
+                    padding: 5px 12px;
                     font-size: 12px;
                     font-weight: 600;
                 }
+
                 QPushButton:hover {
                     background-color: #dbeafe;
+                    border-color: #bfdbfe;
+                }
+
+                QPushButton:pressed {
+                    background-color: #bfdbfe;
                 }
             """)
-            show_button.setFixedWidth(90)
-            show_button.setFixedHeight(28)
-            show_button.clicked.connect(lambda checked, p=patient: self.show_patient_details(p))
-            self.patients_table.setCellWidget(row, 5, show_button)
 
-        self.page_label.setText(f"Page {self.current_page} / {total}")
-        self.prev_button.setEnabled(self.current_page > 1)
-        self.next_button.setEnabled(self.current_page < total)
+            show_button.clicked.connect(
+                lambda checked, p=patient:
+                    self.show_patient_details(p)
+            )
+
+            self.patients_table.setCellWidget(
+                row,
+                6,
+                show_button
+            )
+
+        # ---------------------------------
+        # Pagination
+        # ---------------------------------
+
+        self.page_label.setText(
+            str(self.current_page)
+        )
+
+        self.page_info_label.setText(
+            f"Page {self.current_page} sur {total}"
+        )
+
+        self.prev_button.setEnabled(
+            self.current_page > 1
+        )
+
+        self.next_button.setEnabled(
+            self.current_page < total
+        )
+
+        # Total patients
+        self.total_patients_label.setText(
+            str(len(self.all_patients))
+        )
 
     def go_to_previous_page(self):
         if self.current_page > 1:
@@ -1844,6 +2442,28 @@ class DashboardScreen(QWidget):
             self.historique_table.setItem(row_idx, 1, QTableWidgetItem(created_at.strftime("%d/%m/%Y %H:%M")))
             self.historique_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
             self.historique_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
+            
+            
+            
+            # ////////////////////////////////////////////////
+            
+            actions_widget = QWidget()
+            actions_widget.setAttribute(
+                Qt.WidgetAttribute.WA_StyledBackground,
+                True
+            )
+            actions_widget.setStyleSheet("""
+                QWidget {
+                    background-color: white;
+                    border: none;
+                }
+            """)
+
+            actions_layout = QHBoxLayout()
+            actions_layout.setContentsMargins(4, 0, 4, 0)
+            actions_layout.setSpacing(8)
+
+            actions_widget.setLayout(actions_layout)
  
             detail_button = QPushButton("Voir détail")
             detail_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1853,18 +2473,132 @@ class DashboardScreen(QWidget):
                     border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
                 }
                 QPushButton:hover { background-color: #dbeafe; }
-            """)
+                """)
             detail_button.setFixedWidth(100)
             detail_button.setFixedHeight(28)
- 
+    
             row_data = {
-                "nom": nom, "prenom": prenom, "score": score, "risk_level": risk_level,
-                "created_at": created_at, "image_path": image_path, "clinical_csv_path": clinical_csv_path,
-            }
+                    "nom": nom, "prenom": prenom, "score": score, "risk_level": risk_level,
+                    "created_at": created_at, "image_path": image_path, "clinical_csv_path": clinical_csv_path,
+                }
             detail_button.clicked.connect(lambda checked, d=row_data: self.show_evaluation_detail(d))
-            self.historique_table.setCellWidget(row_idx, 4, detail_button)
- 
-        self.update_historique_stats(rows)
+            actions_layout.addWidget(detail_button)
+                
+                
+            delete_button = QPushButton("Supprimer")
+            delete_button.setCursor(
+                    Qt.CursorShape.PointingHandCursor
+                )
+
+            delete_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #fff1f2;
+                        color: #dc2626;
+                        border: 1px solid #fecdd3;
+                        border-radius: 6px;
+                        padding: 4px 12px;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+
+                    QPushButton:hover {
+                        background-color: #ffe4e6;
+                    }
+                """)
+
+            delete_button.setFixedWidth(85)
+            delete_button.setFixedHeight(28)
+
+            delete_button.clicked.connect(
+                lambda checked, evaluation_id=eval_id:
+                    self.delete_evaluation(evaluation_id)
+            )
+
+            actions_layout.addWidget(delete_button)
+
+
+            # Ajouter les deux boutons dans la colonne Actions
+            self.historique_table.setCellWidget(
+                row_idx,
+                4,
+                actions_widget
+            )
+            self.update_historique_stats(rows)
+        
+        
+    def delete_evaluation(self, evaluation_id):
+
+        msg = QMessageBox(self)
+        
+
+        msg.setWindowTitle("Supprimer l'évaluation")
+        msg.setText("Voulez-vous vraiment supprimer cette évaluation ?")
+        msg.setIcon(QMessageBox.Icon.Question)
+
+        yes_button = msg.addButton(
+            "Supprimer",
+            QMessageBox.ButtonRole.YesRole
+        )
+
+        no_button = msg.addButton(
+            "Annuler",
+            QMessageBox.ButtonRole.NoRole
+        )
+
+        msg.setStyleSheet("""
+    QMessageBox {
+        background-color: white;
+    }
+
+    QMessageBox QLabel {
+        background-color: transparent;
+        color: #1e293b;
+        font-size: 13px;
+        padding: 6px;
+    }
+
+    QMessageBox QPushButton {
+        background-color: white;
+        color: #334155;
+        border: 1px solid #cbd5e1;
+        border-radius: 7px;
+        padding: 7px 18px;
+        min-width: 80px;
+        font-size: 12px;
+    }
+
+    QMessageBox QPushButton:hover {
+        background-color: #f8fafc;
+    }
+
+    QMessageBox QPushButton[text="Supprimer"] {
+        background-color: #dc2626;
+        color: white;
+        border: none;
+    }
+
+    QMessageBox QPushButton[text="Supprimer"]:hover {
+        background-color: #b91c1c;
+    }
+""")
+
+        msg.exec()
+
+        if msg.clickedButton() != yes_button:
+            return
+
+        try:
+            soft_delete_evaluation(evaluation_id)
+
+            self.load_historique()
+
+        except Exception as e:
+
+            QMessageBox.critical(
+                self,
+                "Erreur",
+                f"Impossible de supprimer l'évaluation :\n{e}"
+            )
         
         
     def update_historique_stats(self, rows):

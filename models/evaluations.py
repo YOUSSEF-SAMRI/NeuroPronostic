@@ -104,6 +104,7 @@ def get_evaluations_by_medecin(medecin_id):
         FROM evaluations e
         JOIN patients p ON p.id = e.patient_id
         WHERE p.medecin_id = %s
+        AND e.is_deleted = FALSE
         ORDER BY e.created_at DESC
     """, (medecin_id,))
     rows = cur.fetchall()
@@ -120,6 +121,7 @@ def get_last_evaluation_by_patient(patient_id):
         SELECT result
         FROM evaluations
         WHERE patient_id = %s
+        AND is_deleted = FALSE
         ORDER BY created_at DESC
         LIMIT 1
     """, (patient_id,))
@@ -133,3 +135,19 @@ def get_last_evaluation_by_patient(patient_id):
         return None
 
     return row[0]
+
+
+def soft_delete_evaluation(evaluation_id):
+    conn = get_connections()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE evaluations
+        SET is_deleted = TRUE
+        WHERE id = %s
+    """, (evaluation_id,))
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
