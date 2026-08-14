@@ -15,6 +15,7 @@ import os
 import nibabel as nib
 import pandas as pd
 import numpy as np
+from PyQt6.QtGui import QPixmap, QPainter, QColor
 from ui.manage_users import ManageUsersScreen 
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
 from ui.patient_dialog import AddPatientDialog
