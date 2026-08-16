@@ -99,12 +99,13 @@ def get_evaluations_by_medecin(medecin_id):
     conn = get_connections()
     cur = conn.cursor()
     cur.execute("""
-        SELECT e.id, p.nom, p.prenom, e.result, e.created_at,
+        SELECT e.id,p.id, p.nom, p.prenom, e.result, e.created_at,
                e.image_path, e.clinical_csv_path
         FROM evaluations e
         JOIN patients p ON p.id = e.patient_id
         WHERE p.medecin_id = %s
         AND e.is_deleted = FALSE
+        AND e.archived = false
         ORDER BY e.created_at DESC
     """, (medecin_id,))
     rows = cur.fetchall()
@@ -152,6 +153,70 @@ def soft_delete_evaluation(evaluation_id):
     cur.close()
     conn.close()
     
+def archive_evaluations_before(medcine_id,cutoff_date):
+    conn = get_connections()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE evaluations e
+        SET archived = true , archived_at = NOW()
+        FROM patients p
+        WHERE e.patient_id = p.id
+        AND p.medecin_id = %s 
+        AND e.created_at <= %s
+        AND e.archived = false 
+        AND e.is_deleted = false
+    """,(medcine_id,cutoff_date))
+    affected = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return affected 
+
+
+
+def get_archived_evaluations_by_medecin(medecin_id):
+    conn = get_connections()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT e.id, p.id, p.nom, p.prenom, e.result, e.archived_at, e.created_at, e.image_path, e.clinical_csv_path
+        FROM evaluations e
+        JOIN patients p ON e.patient_id = p.id
+        WHERE p.medecin_id = %s
+          AND e.archived = true
+          AND e.is_deleted = false
+        ORDER BY e.archived_at DESC , e.id DESC
+    """, (medecin_id,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def restore_evaluation(evaluation_id):
+    conn = get_connections()
+    cur = conn.cursor()
+    cur.execute("UPDATE evaluations SET archived = false , archived_at = NULL WHERE id = %s", (evaluation_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+def restore_all_evaluations(medecin_id):
+    conn = get_connections()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE evaluations e
+        SET archived = false, archived_at = NULL
+        FROM patients p
+        WHERE e.patient_id = p.id
+          AND p.medecin_id = %s
+          AND e.archived = true
+          AND e.is_deleted = false
+    """, (medecin_id,))
+    affected = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return affected
 
 
 def check_recent_duplicate(patient_id, image_path, clinical_csv_path, hours=48):

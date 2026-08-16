@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QFrame, QFileDialog,
     QGraphicsDropShadowEffect, QMessageBox, QLineEdit
 )
+from collections import defaultdict
 from models.evaluation import fake_evaluate_prognosis
 from models.evaluations import add_evaluation
 from PyQt6.QtWidgets import QDialog, QSlider, QComboBox
@@ -24,10 +25,15 @@ from models.evaluations import get_evaluations_by_medecin
 from models.evaluations import (
     add_evaluation,
     get_evaluations_by_medecin,
-    get_last_evaluation_by_patient,soft_delete_evaluation, check_recent_duplicate
+    get_last_evaluation_by_patient,soft_delete_evaluation, check_recent_duplicate,
+    archive_evaluations_before,get_archived_evaluations_by_medecin,
+    restore_evaluation,restore_all_evaluations
+    
 )
 from datetime import datetime
-
+from PyQt6.QtWidgets import QDateEdit
+from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtGui import QTextCharFormat, QColor
 
 REQUIRED_CLINICAL_COLUMNS = [
                             "Center",
@@ -87,6 +93,7 @@ class DashboardScreen(QWidget):
         self.patient_uploads = {}   # {patient_id: {"image": path_or_None, "clinical": path_or_None}}
         self.current_patient = None
         
+        
         self.scrollbar_style = """
                                 QScrollBar:vertical {
                                     background: transparent;
@@ -131,6 +138,9 @@ class DashboardScreen(QWidget):
         
         self.historique_page = self.build_historique_page()   # ← nouvelle ligne, index 3
         self.content_stack.addWidget(self.historique_page)     # ← nouvelle ligne
+        
+        self.archive_page = self.build_archive_page()
+        self.content_stack.addWidget(self.archive_page)
         
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.content_stack)
@@ -224,6 +234,14 @@ class DashboardScreen(QWidget):
         self.users_button.clicked.connect(self.open_register)
         self.users_button.setVisible(self.role == "admin")
         sidebar_layout.addWidget(self.users_button)
+        
+        archive_button = QPushButton("  Archiver")
+        archive_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        archive_button.setFixedHeight(45)
+        archive_button.setStyleSheet(button_style)
+        archive_button.clicked.connect(lambda: self.switch_page(4, archive_button))
+        sidebar_layout.addWidget(archive_button)
+        self.nav_buttons.append(archive_button)
             
         sidebar_layout.addStretch()
 
@@ -249,9 +267,531 @@ class DashboardScreen(QWidget):
         patients_button.clicked.connect(lambda: self.switch_page(1, patients_button))
         historique_button.clicked.connect(lambda: self.switch_page(3, historique_button))
         logout_button.clicked.connect(self.handle_logout)
+        
+        
+        
         sidebar_layout.addWidget(logout_button)
 
         return sidebar
+    
+    # def open_archive_dialog(self):
+    #     dialog = QDialog(self)
+    #     dialog.setWindowTitle("Archiver l'historique")
+    #     dialog.resize(380, 420)
+    #     dialog.setStyleSheet("background-color: #f4f5f7;")
+
+    #     layout = QVBoxLayout()
+    #     layout.setContentsMargins(24, 24, 24, 24)
+    #     layout.setSpacing(14)
+    #     dialog.setLayout(layout)
+
+    #     label = QLabel("Archiver toutes les évaluations réalisées jusqu'à cette date :")
+    #     label.setWordWrap(True)
+    #     label.setStyleSheet("color: #374151; font-size: 13px; background: transparent; border: none;")
+    #     layout.addWidget(label)
+
+    #     date_edit = QDateEdit()
+    #     date_edit.setCalendarPopup(True)
+    #     date_edit.setDate(QDate.currentDate())
+    #     date_edit.setDisplayFormat("dd/MM/yyyy")
+    #     date_edit.setFixedHeight(42)
+    #     date_edit.setStyleSheet("""
+    #         QDateEdit {
+    #             border: 1px solid #dbe2ea;
+    #             border-radius: 8px;
+    #             padding: 0px 12px;
+    #             font-size: 13px;
+    #             background-color: white;
+    #             color: #111827;
+    #         }
+    #         QDateEdit:focus {
+    #             border: 1px solid #2563eb;
+    #         }
+    #         QDateEdit::drop-down {
+    #             border: none;
+    #             width: 30px;
+    #         }
+    #         QDateEdit::down-arrow {
+    #             width: 10px;
+    #             height: 10px;
+    #         }
+    #     """)
+
+    #     calendar = date_edit.calendarWidget()
+    #     calendar.setVerticalHeaderFormat(calendar.VerticalHeaderFormat.NoVerticalHeader)
+    #     calendar.setStyleSheet("""
+    #         QCalendarWidget {
+    #             background-color: white;
+    #             border: 1px solid #e5e7eb;
+    #             border-radius: 10px;
+    #         }
+    #         QCalendarWidget QWidget#qt_calendar_navigationbar {
+    #             background-color: white;
+    #             border-bottom: 1px solid #f3f4f6;
+    #         }
+    #         QCalendarWidget QToolButton {
+    #             color: #111827;
+    #             background-color: transparent;
+    #             font-size: 13px;
+    #             font-weight: 600;
+    #             border: none;
+    #             border-radius: 6px;
+    #             padding: 6px 10px;
+    #             margin: 4px;
+    #         }
+    #         QCalendarWidget QToolButton:hover {
+    #             background-color: #eff6ff;
+    #             color: #2563eb;
+    #         }
+    #         QCalendarWidget QToolButton::menu-indicator { image: none; }
+    #         QCalendarWidget QSpinBox {
+    #             background-color: white;
+    #             color: #111827;
+    #             border: 1px solid #e5e7eb;
+    #             border-radius: 6px;
+    #             padding: 2px 6px;
+    #         }
+    #         QCalendarWidget QAbstractItemView {
+    #             background-color: white;
+    #             color: #111827;
+    #             selection-background-color: #2563eb;
+    #             selection-color: white;
+    #             outline: none;
+    #             font-size: 12px;
+    #             border: none;
+    #         }
+    #         QCalendarWidget QAbstractItemView:disabled {
+    #             color: #d1d5db;
+    #         }
+    #     """)
+
+    #     normal_format = QTextCharFormat()
+    #     normal_format.setForeground(QColor("#111827"))
+    #     calendar.setWeekdayTextFormat(Qt.DayOfWeek.Saturday, normal_format)
+    #     calendar.setWeekdayTextFormat(Qt.DayOfWeek.Sunday, normal_format)
+
+    #     layout.addWidget(date_edit)
+    #     layout.addSpacing(260)
+
+    #     confirm_button = QPushButton("Archiver")
+    #     confirm_button.setCursor(Qt.CursorShape.PointingHandCursor)
+    #     confirm_button.setFixedHeight(40)
+    #     confirm_button.setStyleSheet("""
+    #         QPushButton {
+    #             background-color: #2563eb; color: white; border: none;
+    #             border-radius: 6px; font-weight: 600;
+    #         }
+    #         QPushButton:hover { background-color: #1d4ed8; }
+    #     """)
+
+    #     def confirm_archive():
+    #         cutoff = date_edit.date().toPyDate()
+    #         count = archive_evaluations_before(self.user_id, cutoff)
+    #         dialog.accept()
+    #         self.show_warning_message(
+    #             "Archivage terminé",
+    #             f"{count} évaluation(s) archivée(s) jusqu'au {cutoff.strftime('%d/%m/%Y')}."
+    #         )
+    #         if self.content_stack.currentIndex() == 3:
+    #             self.load_historique()
+
+    #     confirm_button.clicked.connect(confirm_archive)
+    #     layout.addWidget(confirm_button)
+
+    #     dialog.exec()
+    def build_archive_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(60, 50, 60, 50)
+        layout.setSpacing(18)
+        page.setLayout(layout)
+
+        header_layout = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+
+        title = QLabel("Archive")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #374151;")
+        subtitle = QLabel("Dossiers patients archivés et clôturés")
+        subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
+        title_col.addWidget(title)
+        title_col.addWidget(subtitle)
+        header_layout.addLayout(title_col)
+        header_layout.addStretch()
+
+        archive_action_button = QPushButton("Archiver jusqu'à une date")
+        archive_action_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        archive_action_button.setFixedHeight(44)
+        archive_action_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb; color: white; border: none;
+                border-radius: 9px; padding: 0px 20px; font-size: 13px; font-weight: 600;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+            QPushButton:pressed { background-color: #1e40af; }
+        """)
+        archive_action_button.clicked.connect(self.open_archive_dialog)
+        header_layout.addWidget(archive_action_button)
+        restore_all_button = QPushButton("  Restaurer tout")
+        restore_all_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        restore_all_button.setFixedHeight(44)
+        restore_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: white; color: #16a34a; border: 1px solid #bbf7d0;
+                border-radius: 9px; padding: 0px 20px; font-size: 13px; font-weight: 600;
+            }
+            QPushButton:hover { background-color: #f0fdf4; }
+            QPushButton:pressed { background-color: #dcfce7; }
+        """)
+        restore_all_button.clicked.connect(self.confirm_restore_all)
+        header_layout.addWidget(restore_all_button)
+        layout.addLayout(header_layout)
+
+        # --- cartes stats ---
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(16)
+        self.archive_total_card, self.archive_total_value = self._make_stat_card("Dossiers archivés", "#374151")
+        self.archive_month_card, self.archive_month_value = self._make_stat_card("Archivés ce mois", "#374151")
+        stats_layout.addWidget(self.archive_total_card)
+        stats_layout.addWidget(self.archive_month_card)
+        layout.addLayout(stats_layout)
+
+        # --- filtres ---
+        filter_style = """
+            QLineEdit, QComboBox {
+                border: 1px solid #e5e7eb; border-radius: 8px;
+                padding: 0 12px; font-size: 13px; background-color: white; color: #111827;
+            }
+            QLineEdit:focus, QComboBox:focus { border-color: #2563eb; }
+            QComboBox::drop-down { border: none; width: 28px; }
+            QComboBox QAbstractItemView {
+                background-color: white; color: #111827; border: 1px solid #e5e7eb;
+                selection-background-color: #eff6ff; selection-color: #111827;
+            }
+        """
+
+        filters_layout = QHBoxLayout()
+        filters_layout.setSpacing(10)
+
+        self.archive_search = QLineEdit()
+        self.archive_search.setPlaceholderText("Rechercher un patient...")
+        self.archive_search.setFixedHeight(38)
+        self.archive_search.setStyleSheet(filter_style)
+        self.archive_search.textChanged.connect(self.filter_archive)
+        filters_layout.addWidget(self.archive_search, stretch=1)
+
+        self.archive_year_filter = QComboBox()
+        self.archive_year_filter.addItem("Toutes les années")
+        self.archive_year_filter.setFixedWidth(150)
+        self.archive_year_filter.setFixedHeight(38)
+        self.archive_year_filter.setStyleSheet(filter_style)
+        self.archive_year_filter.currentIndexChanged.connect(self.filter_archive)
+        filters_layout.addWidget(self.archive_year_filter)
+
+        self.archive_risk_filter = QComboBox()
+        self.archive_risk_filter.addItems(["Tous les risques", "Élevé", "Modéré", "Faible"])
+        self.archive_risk_filter.setFixedWidth(170)
+        self.archive_risk_filter.setFixedHeight(38)
+        self.archive_risk_filter.setStyleSheet(filter_style)
+        self.archive_risk_filter.currentIndexChanged.connect(self.filter_archive)
+        filters_layout.addWidget(self.archive_risk_filter)
+
+        layout.addLayout(filters_layout)
+
+        # --- tableau ---
+        self.archive_empty_label = QLabel("Aucune évaluation archivée pour l'instant.")
+        self.archive_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.archive_empty_label.setStyleSheet("color: #9ca3af; font-size: 14px; padding: 80px 0;")
+
+        self.archive_table = QTableWidget()
+        self.archive_table.setColumnCount(5)
+        self.archive_table.setHorizontalHeaderLabels(["Patient", "Archivé le", "Score", "Risque", "Actions"])
+        self.archive_table.horizontalHeader().setStretchLastSection(True)
+        self.archive_table.setColumnWidth(0, 230)
+        self.archive_table.setColumnWidth(1, 150)
+        self.archive_table.setColumnWidth(2, 80)
+        self.archive_table.setColumnWidth(3, 110)
+        self.archive_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.archive_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.archive_table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: white; border: 1px solid #e5e7eb; border-radius: 8px;
+                gridline-color: #f3f4f6;
+            }}
+            QTableWidget::item {{ color: #111827; padding: 8px; border: none; }}
+            QTableWidget::item:selected {{ background-color: #f3f4f6; color: #111827; outline: none; }}
+            QHeaderView::section {{
+                background-color: #f9fafb; color: #374151; font-weight: 600;
+                padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
+            }}
+            {self.scrollbar_style}
+        """)
+        self.archive_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.archive_table.setVisible(False)
+        self.archive_table.verticalHeader().setDefaultSectionSize(58)
+
+        layout.addWidget(self.archive_empty_label)
+        layout.addWidget(self.archive_table)
+
+        self.archive_all_rows = []
+        return page
+    
+    def confirm_restore_all(self):
+        if not self.archive_all_rows:
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Restaurer tout")
+        box.setText(
+            f"Voulez-vous vraiment restaurer les {len(self.archive_all_rows)} "
+            f"évaluation(s) archivée(s) ? Elles réapparaîtront dans l'Historique."
+        )
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        box.setStyleSheet("""
+            QMessageBox { min-width: 380px; }
+            QMessageBox QLabel { color: #1f2937; font-size: 13px; }
+            QPushButton {
+                background-color: #f3f4f6; color: #111827; border: 1px solid #d1d5db;
+                border-radius: 6px; padding: 6px 18px; min-width: 70px;
+            }
+            QPushButton:hover { background-color: #e5e7eb; }
+            QPushButton:default { background-color: #16a34a; color: white; border: none; }
+            QPushButton:default:hover { background-color: #15803d; }
+        """)
+        answer = box.exec()
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        count = restore_all_evaluations(self.user_id)
+        self.show_warning_message("Restauration terminée", f"{count} évaluation(s) restaurée(s).")
+        self.load_archive()
+    
+    def load_archive(self):
+        rows = get_archived_evaluations_by_medecin(self.user_id)
+
+        # normalise archived_at en objet datetime, que ce soit déjà un datetime ou une string
+        normalized_rows = []
+        for row in rows:
+            row = list(row)
+            archived_at = row[5]
+            if isinstance(archived_at, str):
+                try:
+                    archived_at = datetime.fromisoformat(archived_at)
+                except ValueError:
+                    archived_at = None
+            row[5] = archived_at
+            normalized_rows.append(tuple(row))
+
+        self.archive_all_rows = normalized_rows
+
+        years = sorted({r[5].year for r in normalized_rows if r[5]}, reverse=True)
+        self.archive_year_filter.blockSignals(True)
+        self.archive_year_filter.clear()
+        self.archive_year_filter.addItem("Toutes les années")
+        for y in years:
+            self.archive_year_filter.addItem(str(y))
+        self.archive_year_filter.blockSignals(False)
+
+        self.archive_search.blockSignals(True)
+        self.archive_search.clear()
+        self.archive_search.blockSignals(False)
+        self.archive_risk_filter.blockSignals(True)
+        self.archive_risk_filter.setCurrentIndex(0)
+        self.archive_risk_filter.blockSignals(False)
+
+        self.render_archive_rows(normalized_rows)
+
+
+    def filter_archive(self):
+        query = self.archive_search.text().strip().lower()
+        year_choice = self.archive_year_filter.currentText()
+        risk_choice = self.archive_risk_filter.currentText()
+
+        filtered = []
+        for row in self.archive_all_rows:
+            eval_id, patient_id, nom, prenom, result, archived_at, created_at, image_path, clinical_csv_path = row
+            full_name = f"{nom} {prenom}".lower()
+            risk_level = result.get("risk_level", "—")
+
+            if query and query not in full_name:
+                continue
+            if year_choice != "Toutes les années" and (not archived_at or str(archived_at.year) != year_choice):
+                continue
+            if risk_choice != "Tous les risques" and risk_level != risk_choice:
+                continue
+            filtered.append(row)
+
+        self.render_archive_rows(filtered)
+
+
+    def render_archive_rows(self, rows):
+        has_rows = bool(rows)
+        self.archive_empty_label.setVisible(not has_rows)
+        self.archive_table.setVisible(has_rows)
+        self.archive_table.setRowCount(len(rows))
+
+        for row_idx, (eval_id, patient_id, nom, prenom, result, archived_at, created_at, image_path, clinical_csv_path) in enumerate(rows):
+            score = result.get("score", "—")
+            risk_level = result.get("risk_level", "—")
+
+            self.archive_table.setCellWidget(row_idx, 0, self.create_patient_cell_id(nom, prenom, patient_id))
+            date_text = archived_at.strftime("%d/%m/%Y %H:%M") if archived_at else "—"
+            self.archive_table.setItem(row_idx, 1, QTableWidgetItem(date_text))
+            self.archive_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
+            self.archive_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
+
+            actions_widget = QWidget()
+            actions_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            actions_widget.setStyleSheet("QWidget { background-color: white; border: none; }")
+            actions_layout = QHBoxLayout()
+            actions_layout.setContentsMargins(4, 0, 4, 0)
+            actions_layout.setSpacing(8)
+            actions_widget.setLayout(actions_layout)
+
+            detail_button = QPushButton("Voir détail")
+            detail_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            detail_button.setFixedWidth(100)
+            detail_button.setFixedHeight(28)
+            detail_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+                    border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+                }
+                QPushButton:hover { background-color: #dbeafe; }
+            """)
+            row_data = {
+                "nom": nom, "prenom": prenom, "score": score, "risk_level": risk_level,
+                "created_at": created_at, "image_path": image_path, "clinical_csv_path": clinical_csv_path,
+            }
+            detail_button.clicked.connect(lambda checked, d=row_data: self.show_evaluation_detail(d))
+            actions_layout.addWidget(detail_button)
+
+            restore_button = QPushButton("Restaurer")
+            restore_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            restore_button.setFixedWidth(90)
+            restore_button.setFixedHeight(28)
+            restore_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0;
+                    border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+                }
+                QPushButton:hover { background-color: #dcfce7; }
+            """)
+            restore_button.clicked.connect(lambda checked, evaluation_id=eval_id: self.handle_restore(evaluation_id))
+            actions_layout.addWidget(restore_button)
+
+            self.archive_table.setCellWidget(row_idx, 4, actions_widget)
+
+        self.update_archive_stats(rows)
+
+    def update_archive_stats(self, rows):
+        total = len(self.archive_all_rows)
+        self.archive_total_value.setText(str(total))
+
+        now = datetime.now()
+        this_month = sum(
+            1 for r in self.archive_all_rows
+            if r[5] and r[5].year == now.year and r[5].month == now.month
+        )
+        self.archive_month_value.setText(str(this_month))
+
+
+    def handle_restore(self, evaluation_id):
+        restore_evaluation(evaluation_id)
+        self.load_archive()
+        
+    def open_archive_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Archiver l'historique")
+        dialog.resize(380, 420)
+        dialog.setStyleSheet("background-color: #f4f5f7;")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+        dialog.setLayout(layout)
+
+        label = QLabel("Archiver toutes les évaluations réalisées jusqu'à cette date :")
+        label.setWordWrap(True)
+        label.setStyleSheet("color: #374151; font-size: 13px; background: transparent; border: none;")
+        layout.addWidget(label)
+
+        date_edit = QDateEdit()
+        date_edit.setCalendarPopup(True)
+        date_edit.setDate(QDate.currentDate())
+        date_edit.setDisplayFormat("dd/MM/yyyy")
+        date_edit.setFixedHeight(42)
+        date_edit.setStyleSheet("""
+            QDateEdit {
+                border: 1px solid #dbe2ea; border-radius: 8px; padding: 0px 12px;
+                font-size: 13px; background-color: white; color: #111827;
+            }
+            QDateEdit:focus { border: 1px solid #2563eb; }
+            QDateEdit::drop-down { border: none; width: 30px; }
+            QDateEdit::down-arrow { width: 10px; height: 10px; }
+        """)
+
+        calendar = date_edit.calendarWidget()
+        calendar.setVerticalHeaderFormat(calendar.VerticalHeaderFormat.NoVerticalHeader)
+        calendar.setStyleSheet("""
+            QCalendarWidget { background-color: white; border: 1px solid #e5e7eb; border-radius: 10px; }
+            QCalendarWidget QWidget#qt_calendar_navigationbar {
+                background-color: white; border-bottom: 1px solid #f3f4f6;
+            }
+            QCalendarWidget QToolButton {
+                color: #111827; background-color: transparent; font-size: 13px;
+                font-weight: 600; border: none; border-radius: 6px; padding: 6px 10px; margin: 4px;
+            }
+            QCalendarWidget QToolButton:hover { background-color: #eff6ff; color: #2563eb; }
+            QCalendarWidget QToolButton::menu-indicator { image: none; }
+            QCalendarWidget QSpinBox {
+                background-color: white; color: #111827; border: 1px solid #e5e7eb;
+                border-radius: 6px; padding: 2px 6px;
+            }
+            QCalendarWidget QAbstractItemView {
+                background-color: white; color: #111827; selection-background-color: #2563eb;
+                selection-color: white; outline: none; font-size: 12px; border: none;
+            }
+            QCalendarWidget QAbstractItemView:disabled { color: #d1d5db; }
+        """)
+
+        normal_format = QTextCharFormat()
+        normal_format.setForeground(QColor("#111827"))
+        calendar.setWeekdayTextFormat(Qt.DayOfWeek.Saturday, normal_format)
+        calendar.setWeekdayTextFormat(Qt.DayOfWeek.Sunday, normal_format)
+
+        layout.addWidget(date_edit)
+        layout.addSpacing(260)
+
+        confirm_button = QPushButton("Archiver")
+        confirm_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        confirm_button.setFixedHeight(40)
+        confirm_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb; color: white; border: none;
+                border-radius: 6px; font-weight: 600;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        """)
+
+        def confirm_archive():
+            cutoff = date_edit.date().toPyDate()
+            count = archive_evaluations_before(self.user_id, cutoff)
+            dialog.accept()
+            self.show_warning_message(
+                "Archivage terminé",
+                f"{count} évaluation(s) archivée(s) jusqu'au {cutoff.strftime('%d/%m/%Y')}."
+            )
+            self.load_archive()
+            if self.content_stack.currentIndex() == 3:
+                self.load_historique()
+
+        confirm_button.clicked.connect(confirm_archive)
+        layout.addWidget(confirm_button)
+
+        dialog.exec()    
     
     def switch_page(self, index, active_button):
         self.content_stack.setCurrentIndex(index)
@@ -264,6 +804,8 @@ class DashboardScreen(QWidget):
             self.load_patients()
         elif index == 3:
             self.load_historique()
+        elif index == 4:
+            self.load_archive()
         
     def handle_logout(self):
         box = QMessageBox(self)
@@ -2502,16 +3044,53 @@ class DashboardScreen(QWidget):
         wrapper_layout.addWidget(name)
         wrapper_layout.addStretch()
         return wrapper
+    
+    def create_patient_cell_id(self, nom, prenom, patient_id):
+        initials = (nom[:1] + prenom[:1]).upper() if nom and prenom else "?"
+
+        wrapper = QWidget()
+        wrapper.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        wrapper.setStyleSheet("background-color: transparent;")
+
+        wrapper_layout = QHBoxLayout()
+        wrapper_layout.setContentsMargins(10, 0, 0, 0)
+        wrapper_layout.setSpacing(10)
+        wrapper.setLayout(wrapper_layout)
+
+        avatar = QLabel(initials)
+        avatar.setFixedSize(32, 32)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet("""
+            QLabel {
+                background-color: #eff6ff; color: #2563eb;
+                border-radius: 16px; font-size: 11px; font-weight: 700; border: none;
+            }
+        """)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(0)
+        text_col.setContentsMargins(0, 0, 0, 0)
+
+        name = QLabel(f"{nom} {prenom}")
+        name.setStyleSheet("color: #111827; font-size: 13px; font-weight: 500; border: none; background: transparent;")
+        id_label = QLabel(f"#P-{patient_id}")
+        id_label.setStyleSheet("color: #9ca3af; font-size: 11px; border: none; background: transparent;")
+
+        text_col.addWidget(name)
+        text_col.addWidget(id_label)
+
+        wrapper_layout.addWidget(avatar)
+        wrapper_layout.addLayout(text_col)
+        wrapper_layout.addStretch()
+        return wrapper
 
     def load_historique(self):
         rows = get_evaluations_by_medecin(self.user_id)
         self.historique_all_rows = rows
-
-        # Calcul du score moyen
         scores = []
         
         for row in rows:
-            eval_id, nom, prenom, result, created_at, image_path, clinical_csv_path = row
+            eval_id, patient_id, nom, prenom, result, created_at, image_path, clinical_csv_path = row
 
             score = result.get("score")
 
@@ -2538,7 +3117,7 @@ class DashboardScreen(QWidget):
  
         filtered = []
         for row in self.historique_all_rows:
-            eval_id, nom, prenom, result, created_at, image_path, clinical_csv_path = row
+            eval_id,patient_id, nom, prenom, result, created_at, image_path, clinical_csv_path = row
             full_name = f"{nom} {prenom}".lower()
             risk_level = result.get("risk_level", "—")
  
@@ -2550,101 +3129,277 @@ class DashboardScreen(QWidget):
  
         self.render_historique_rows(filtered)
         
+    def create_patient_cell_count(self, nom, prenom, count):
+        initials = (nom[:1] + prenom[:1]).upper() if nom and prenom else "?"
+
+        wrapper = QWidget()
+        wrapper.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        wrapper.setStyleSheet("background-color: transparent;")
+
+        wrapper_layout = QHBoxLayout()
+        wrapper_layout.setContentsMargins(10, 0, 0, 0)
+        wrapper_layout.setSpacing(10)
+        wrapper.setLayout(wrapper_layout)
+
+        avatar = QLabel(initials)
+        avatar.setFixedSize(30, 30)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet("""
+            QLabel {
+                background-color: #eff6ff; color: #2563eb;
+                border-radius: 15px; font-size: 11px; font-weight: 700; border: none;
+            }
+        """)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(0)
+        text_col.setContentsMargins(0, 0, 0, 0)
+
+        name = QLabel(f"{nom} {prenom}")
+        name.setStyleSheet("color: #111827; font-size: 13px; border: none; background: transparent;")
+        text_col.addWidget(name)
+
+        if count > 1:
+            count_label = QLabel(f"{count} évaluations")
+            count_label.setStyleSheet("color: #2563eb; font-size: 11px; font-weight: 600; border: none; background: transparent;")
+            text_col.addWidget(count_label)
+
+        wrapper_layout.addWidget(avatar)
+        wrapper_layout.addLayout(text_col)
+        wrapper_layout.addStretch()
+        return wrapper
+   
     def render_historique_rows(self, rows):
-        has_rows = bool(rows)
+        grouped = defaultdict(list)
+        for row in rows:
+            patient_id = row[1]
+            grouped[patient_id].append(row)
+
+        # sépare : items "single" (1 seule éval) vs "group" (plusieurs évals)
+        display_items = []
+        for patient_id, evals in grouped.items():
+            evals_sorted = sorted(evals, key=lambda r: r[5], reverse=True)
+            if len(evals_sorted) == 1:
+                display_items.append(("single", evals_sorted[0]))
+            else:
+                display_items.append(("group", evals_sorted))
+
+        def latest_date(item):
+            kind, data = item
+            return data[5] if kind == "single" else data[0][5]
+
+        display_items.sort(key=latest_date, reverse=True)
+
+        has_rows = bool(display_items)
         self.historique_empty_label.setVisible(not has_rows)
         self.historique_table.setVisible(has_rows)
- 
-        self.historique_table.setRowCount(len(rows))
- 
-        for row_idx, (eval_id, nom, prenom, result, created_at, image_path, clinical_csv_path) in enumerate(rows):
-            score = result.get("score", "—")
-            risk_level = result.get("risk_level", "—")
- 
-            self.historique_table.setCellWidget(row_idx, 0, self.create_patient_cell(nom, prenom))
-            self.historique_table.setItem(row_idx, 1, QTableWidgetItem(created_at.strftime("%d/%m/%Y %H:%M")))
-            self.historique_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
-            self.historique_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
-            
-            # ////////////////////////////////////////////////
-            
-            actions_widget = QWidget()
-            actions_widget.setAttribute(
-                Qt.WidgetAttribute.WA_StyledBackground,
-                True
-            )
-            actions_widget.setStyleSheet("""
-                QWidget {
-                    background-color: white;
-                    border: none;
-                }
-            """)
+        self.historique_table.setRowCount(len(display_items))
 
-            actions_layout = QHBoxLayout()
-            actions_layout.setContentsMargins(4, 0, 4, 0)
-            actions_layout.setSpacing(8)
+        for row_idx, (kind, data) in enumerate(display_items):
 
-            actions_widget.setLayout(actions_layout)
- 
-            detail_button = QPushButton("Voir détail")
-            detail_button.setCursor(Qt.CursorShape.PointingHandCursor)
-            detail_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
-                    border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
-                }
-                QPushButton:hover { background-color: #dbeafe; }
-                """)
-            detail_button.setFixedWidth(100)
-            detail_button.setFixedHeight(28)
-    
-            row_data = {
+            if kind == "single":
+                eval_id, patient_id, nom, prenom, result, created_at, image_path, clinical_csv_path = data
+                score = result.get("score", "—")
+                risk_level = result.get("risk_level", "—")
+
+                self.historique_table.setCellWidget(row_idx, 0, self.create_patient_cell(nom, prenom))
+                self.historique_table.setItem(row_idx, 1, QTableWidgetItem(created_at.strftime("%d/%m/%Y %H:%M")))
+                self.historique_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
+                self.historique_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
+
+                actions_widget = QWidget()
+                actions_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                actions_widget.setStyleSheet("QWidget { background-color: white; border: none; }")
+                actions_layout = QHBoxLayout()
+                actions_layout.setContentsMargins(4, 0, 4, 0)
+                actions_layout.setSpacing(8)
+                actions_widget.setLayout(actions_layout)
+
+                row_data = {
                     "nom": nom, "prenom": prenom, "score": score, "risk_level": risk_level,
                     "created_at": created_at, "image_path": image_path, "clinical_csv_path": clinical_csv_path,
                 }
-            detail_button.clicked.connect(lambda checked, d=row_data: self.show_evaluation_detail(d))
-            actions_layout.addWidget(detail_button)
-                
-                
-            delete_button = QPushButton("Supprimer")
-            delete_button.setCursor(
-                    Qt.CursorShape.PointingHandCursor
-                )
-
-            delete_button.setStyleSheet("""
+                detail_button = QPushButton("Voir détail")
+                detail_button.setCursor(Qt.CursorShape.PointingHandCursor)
+                detail_button.setFixedWidth(100)
+                detail_button.setFixedHeight(28)
+                detail_button.setStyleSheet("""
                     QPushButton {
-                        background-color: #fff1f2;
-                        color: #dc2626;
-                        border: 1px solid #fecdd3;
-                        border-radius: 6px;
-                        padding: 4px 12px;
-                        font-size: 12px;
-                        font-weight: 600;
+                        background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+                        border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
                     }
-
-                    QPushButton:hover {
-                        background-color: #ffe4e6;
-                    }
+                    QPushButton:hover { background-color: #dbeafe; }
                 """)
+                detail_button.clicked.connect(lambda checked, d=row_data: self.show_evaluation_detail(d))
+                actions_layout.addWidget(detail_button)
 
-            delete_button.setFixedWidth(85)
-            delete_button.setFixedHeight(28)
+                delete_button = QPushButton("Supprimer")
+                delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
+                delete_button.setFixedWidth(85)
+                delete_button.setFixedHeight(28)
+                delete_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #fff1f2; color: #dc2626; border: 1px solid #fecdd3;
+                        border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+                    }
+                    QPushButton:hover { background-color: #ffe4e6; }
+                """)
+                delete_button.clicked.connect(lambda checked, evaluation_id=eval_id: self.delete_evaluation(evaluation_id))
+                actions_layout.addWidget(delete_button)
 
-            delete_button.clicked.connect(
-                lambda checked, evaluation_id=eval_id:
-                    self.delete_evaluation(evaluation_id)
-            )
+                self.historique_table.setCellWidget(row_idx, 4, actions_widget)
 
-            actions_layout.addWidget(delete_button)
+            else:  # kind == "group"
+                evals_sorted = data
+                eval_id, patient_id, nom, prenom, result, created_at, image_path, clinical_csv_path = evals_sorted[0]
+                score = result.get("score", "—")
+                risk_level = result.get("risk_level", "—")
 
+                self.historique_table.setCellWidget(
+                    row_idx, 0, self.create_patient_cell_count(nom, prenom, len(evals_sorted))
+                )
+                self.historique_table.setItem(row_idx, 1, QTableWidgetItem(created_at.strftime("%d/%m/%Y %H:%M")))
+                self.historique_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
+                self.historique_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
 
-            # Ajouter les deux boutons dans la colonne Actions
-            self.historique_table.setCellWidget(
-                row_idx,
-                4,
-                actions_widget
-            )
-            self.update_historique_stats(rows)
+                actions_widget = QWidget()
+                actions_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                actions_widget.setStyleSheet("QWidget { background-color: white; border: none; }")
+                actions_layout = QHBoxLayout()
+                actions_layout.setContentsMargins(4, 0, 4, 0)
+                actions_widget.setLayout(actions_layout)
+
+                detail_button = QPushButton("Voir détail")
+                detail_button.setCursor(Qt.CursorShape.PointingHandCursor)
+                detail_button.setFixedWidth(100)
+                detail_button.setFixedHeight(28)
+                detail_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+                        border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+                    }
+                    QPushButton:hover { background-color: #dbeafe; }
+                """)
+                detail_button.clicked.connect(
+                    lambda checked, g=evals_sorted, n=nom, p=prenom: self.show_patient_evaluations(n, p, g)
+                )
+                actions_layout.addWidget(detail_button)
+                spacer = QWidget()
+                spacer.setFixedSize(85, 28)
+                actions_layout.addWidget(spacer)
+                
+                self.historique_table.setCellWidget(row_idx, 4, actions_widget)
+
+        self.update_historique_stats(rows)
+        
+    def show_patient_evaluations(self, nom, prenom, evaluations):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Évaluations de {nom} {prenom}")
+        dialog.resize(650, 450)
+        dialog.setStyleSheet("background-color: #f4f5f7;")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+        dialog.setLayout(layout)
+
+        title = QLabel(f"{nom} {prenom}")
+        title.setStyleSheet("font-size: 17px; font-weight: 700; color: #111827; background: transparent; border: none;")
+        subtitle = QLabel(f"{len(evaluations)} évaluation(s) enregistrée(s)")
+        subtitle.setStyleSheet("color: #9ca3af; font-size: 12px; background: transparent; border: none;")
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Date", "Score", "Risque", "Actions"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setColumnWidth(0, 150)
+        table.setColumnWidth(1, 70)
+        table.setColumnWidth(2, 100)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: white; border: 1px solid #e5e7eb; border-radius: 8px;
+                gridline-color: #f3f4f6;
+            }}
+            QTableWidget::item {{ color: #111827; padding: 6px; border: none; }}
+            QHeaderView::section {{
+                background-color: #f9fafb; color: #374151; font-weight: 600;
+                padding: 8px; border: none; border-bottom: 1px solid #e5e7eb;
+            }}
+            {self.scrollbar_style}
+        """)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        table.verticalHeader().setDefaultSectionSize(50)
+        layout.addWidget(table)
+
+        current_evals = list(evaluations)
+
+        def refresh_table():
+            table.setRowCount(len(current_evals))
+            for row_idx, ev in enumerate(current_evals):
+                eval_id, patient_id, n, p, result, created_at, image_path, clinical_csv_path = ev
+                score = result.get("score", "—")
+                risk_level = result.get("risk_level", "—")
+
+                table.setItem(row_idx, 0, QTableWidgetItem(created_at.strftime("%d/%m/%Y %H:%M")))
+                table.setItem(row_idx, 1, QTableWidgetItem(str(score)))
+                table.setCellWidget(row_idx, 2, self.create_risk_badge(risk_level))
+
+                actions_widget = QWidget()
+                actions_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                actions_widget.setStyleSheet("QWidget { background-color: white; border: none; }")
+                actions_layout = QHBoxLayout()
+                actions_layout.setContentsMargins(4, 0, 4, 0)
+                actions_layout.setSpacing(6)
+                actions_widget.setLayout(actions_layout)
+
+                row_data = {
+                    "nom": n, "prenom": p, "score": score, "risk_level": risk_level,
+                    "created_at": created_at, "image_path": image_path, "clinical_csv_path": clinical_csv_path,
+                }
+                detail_btn = QPushButton("Détail")
+                detail_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                detail_btn.setFixedSize(70, 26)
+                detail_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+                        border-radius: 6px; font-size: 11px; font-weight: 600;
+                    }
+                    QPushButton:hover { background-color: #dbeafe; }
+                """)
+                detail_btn.clicked.connect(lambda checked, d=row_data: self.show_evaluation_detail(d))
+                actions_layout.addWidget(detail_btn)
+
+                delete_btn = QPushButton("Suppr.")
+                delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                delete_btn.setFixedSize(70, 26)
+                delete_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #fff1f2; color: #dc2626; border: 1px solid #fecdd3;
+                        border-radius: 6px; font-size: 11px; font-weight: 600;
+                    }
+                    QPushButton:hover { background-color: #ffe4e6; }
+                """)
+                delete_btn.clicked.connect(lambda checked, evaluation_id=eval_id: handle_delete(evaluation_id))
+                actions_layout.addWidget(delete_btn)
+
+                table.setCellWidget(row_idx, 3, actions_widget)
+
+        def handle_delete(evaluation_id):
+            soft_delete_evaluation(evaluation_id)
+            nonlocal current_evals
+            current_evals = [e for e in current_evals if e[0] != evaluation_id]
+            self.load_historique()
+            if not current_evals:
+                dialog.accept()
+            else:
+                refresh_table()
+
+        refresh_table()
+        dialog.exec()
         
         
     def delete_evaluation(self, evaluation_id):
@@ -2728,16 +3483,16 @@ class DashboardScreen(QWidget):
             f"{total} évaluation{'s' if total != 1 else ''} enregistrée{'s' if total != 1 else ''}"
         )
         self.historique_total_value.setText(str(total))
- 
+
         if total == 0:
             self.historique_risk_value.setText("0")
             self.historique_avg_value.setText("—")
             return
- 
-        elevated = sum(1 for r in rows if r[3].get("risk_level") == "Élevé")
+
+        elevated = sum(1 for r in rows if r[4].get("risk_level") == "Élevé")
         self.historique_risk_value.setText(str(elevated))
- 
-        scores = [r[3].get("score") for r in rows if isinstance(r[3].get("score"), (int, float))]
+
+        scores = [r[4].get("score") for r in rows if isinstance(r[4].get("score"), (int, float))]
         avg = round(sum(scores) / len(scores), 2) if scores else "—"
         self.historique_avg_value.setText(str(avg))
             
