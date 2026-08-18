@@ -504,13 +504,14 @@ class DashboardScreen(QWidget):
         self.archive_empty_label.setStyleSheet("color: #9ca3af; font-size: 14px; padding: 80px 0;")
 
         self.archive_table = QTableWidget()
-        self.archive_table.setColumnCount(5)
-        self.archive_table.setHorizontalHeaderLabels(["Patient", "Archivé le", "Score", "Risque", "Actions"])
+        self.archive_table.setColumnCount(6)
+        self.archive_table.setHorizontalHeaderLabels(["Patient", "Archivé le","Évalué le", "Score", "Risque", "Actions"])
         self.archive_table.horizontalHeader().setStretchLastSection(True)
         self.archive_table.setColumnWidth(0, 230)
         self.archive_table.setColumnWidth(1, 150)
-        self.archive_table.setColumnWidth(2, 80)
-        self.archive_table.setColumnWidth(3, 110)
+        self.archive_table.setColumnWidth(2, 130)   # Évalué le   ← nouveau
+        self.archive_table.setColumnWidth(3, 80)
+        self.archive_table.setColumnWidth(4, 110)
         self.archive_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.archive_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.archive_table.setStyleSheet(f"""
@@ -639,8 +640,11 @@ class DashboardScreen(QWidget):
             self.archive_table.setCellWidget(row_idx, 0, self.create_patient_cell_id(nom, prenom, patient_id))
             date_text = archived_at.strftime("%d/%m/%Y %H:%M") if archived_at else "—"
             self.archive_table.setItem(row_idx, 1, QTableWidgetItem(date_text))
-            self.archive_table.setItem(row_idx, 2, QTableWidgetItem(str(score)))
-            self.archive_table.setCellWidget(row_idx, 3, self.create_risk_badge(risk_level))
+            eval_date_text = created_at.strftime("%d/%m/%Y %H:%M") if created_at else "—"
+            self.archive_table.setItem(row_idx, 2, QTableWidgetItem(eval_date_text))  # NOUVEAU
+
+            self.archive_table.setItem(row_idx, 3, QTableWidgetItem(str(score)))
+            self.archive_table.setCellWidget(row_idx, 4, self.create_risk_badge(risk_level))
 
             actions_widget = QWidget()
             actions_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -682,7 +686,7 @@ class DashboardScreen(QWidget):
             restore_button.clicked.connect(lambda checked, evaluation_id=eval_id: self.handle_restore(evaluation_id))
             actions_layout.addWidget(restore_button)
 
-            self.archive_table.setCellWidget(row_idx, 4, actions_widget)
+            self.archive_table.setCellWidget(row_idx, 5, actions_widget)
 
         self.update_archive_stats(rows)
 
@@ -919,6 +923,33 @@ class DashboardScreen(QWidget):
         if hasattr(self, "patient_clinical_upload_button"):
             self.patient_clinical_upload_button.setText(" Upload File...")
             self.patient_clinical_upload_button.setStyleSheet(default_style)
+            
+                # Reset aperçu image
+        if hasattr(self, "patient_image_preview"):
+            self.patient_image_preview.clear()
+            self.patient_image_preview.setText(
+                "Aucune image NIFTI chargée"
+            )
+
+        # Reset bouton visualiser image
+        if hasattr(self, "patient_image_view_button"):
+            self.patient_image_view_button.setVisible(False)
+
+        # Reset tableau CSV
+        if hasattr(self, "patient_clinical_table"):
+            self.patient_clinical_table.clearContents()
+            self.patient_clinical_table.setRowCount(0)
+
+        # Reset bouton visualiser CSV
+        if hasattr(self, "patient_clinical_view_button"):
+            self.patient_clinical_view_button.setVisible(False)
+
+        # Reset score / risque
+        if hasattr(self, "patient_score_label"):
+            self.patient_score_label.setText("—")
+
+        if hasattr(self, "patient_risk_label"):
+            self.patient_risk_label.setText("—")
             
             
     def open_register(self):
@@ -1916,18 +1947,38 @@ class DashboardScreen(QWidget):
         self.patient_date_badge.setText(created_at.strftime("%d/%m/%Y"))
 
         self.reset_patient_upload_buttons()
-        self.patient_image_preview.setVisible(False)
-        self.patient_clinical_preview.setVisible(False)
 
-        uploads = self.patient_uploads.get(id_, {"image": None, "clinical": None})
+        uploads = self.patient_uploads.get(
+            id_,
+            {"image": None, "clinical": None}
+        )
+        
         self.patient_image_view_button.setVisible(bool(uploads["image"]))
         self.patient_clinical_view_button.setVisible(bool(uploads["clinical"]))
         if uploads["image"]:
-            self.patient_image_upload_button.setText(f"  {os.path.basename(uploads['image'])}")
+            self.patient_image_upload_button.setText(
+                f"  {os.path.basename(uploads['image'])}"
+            )
+
             self.show_image_preview(uploads["image"])
+
+            self.patient_image_view_button.setVisible(True)
+
+        else:
+            self.patient_image_view_button.setVisible(False)
+
+
         if uploads["clinical"]:
-            self.patient_clinical_upload_button.setText(f"  {os.path.basename(uploads['clinical'])}")
-            self.show_clinical_preview(uploads["clinical"])
+            self.patient_clinical_upload_button.setText(
+                f"  {os.path.basename(uploads['clinical'])}"
+            )
+
+            # On affiche les données dans notre nouveau tableau
+            self.load_clinical_table(uploads["clinical"])
+
+        else:
+            self.patient_clinical_view_button.setVisible(False)
+            self.patient_clinical_table.setRowCount(0)
             
         result = get_last_evaluation_by_patient(id_)
 
@@ -1948,6 +1999,73 @@ class DashboardScreen(QWidget):
 
         self.update_patient_evaluate_button()
         self.content_stack.setCurrentIndex(2)
+        
+    def load_clinical_table(self, file_path):
+        try:
+            df = pd.read_csv(
+                file_path,
+                sep=None,
+                engine="python"
+            )
+
+            # On prend seulement quelques colonnes pour l'aperçu
+            wanted_columns = [
+                "Age",
+                "Sex",
+                "NIHSS at admission",
+                "Onset to door",
+                "mRS premorbid"
+            ]
+
+            available_columns = [
+                col for col in wanted_columns
+                if col in df.columns
+            ]
+
+            self.patient_clinical_table.setColumnCount(
+                len(available_columns)
+            )
+
+            self.patient_clinical_table.setHorizontalHeaderLabels(
+                available_columns
+            )
+
+            # Maximum 10 lignes dans l'aperçu
+            preview_df = df[available_columns].head(10)
+
+            self.patient_clinical_table.setRowCount(
+                len(preview_df)
+            )
+
+            for row_index, (_, row_data) in enumerate(
+                preview_df.iterrows()
+            ):
+                for col_index, column in enumerate(
+                    available_columns
+                ):
+                    item = QTableWidgetItem(
+                        str(row_data[column])
+                    )
+
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignCenter
+                    )
+
+                    self.patient_clinical_table.setItem(
+                        row_index,
+                        col_index,
+                        item
+                    )
+
+            self.patient_clinical_table.resizeColumnsToContents()
+
+        except Exception as e:
+            self.patient_clinical_table.setRowCount(0)
+
+            self.show_error_message(
+                "Erreur",
+                f"Impossible de charger le fichier CSV :\n{e}"
+            )
         
     def update_patient_evaluate_button(self):
         pid = self.current_patient[0] if self.current_patient else None
@@ -1989,16 +2107,43 @@ class DashboardScreen(QWidget):
         
         
     def display_evaluation_result(self, result):
-        risk_color = {"Faible": "#16a34a", "Modéré": "#f59e0b", "Élevé": "#dc2626"}.get(
-            result["risk_level"], "#374151"
+        score = result.get("score", "—")
+        risk_level = result.get("risk_level", "—")
+
+        risk_color = {
+            "Faible": "#16a34a",
+            "Modéré": "#f59e0b",
+            "Élevé": "#dc2626"
+        }.get(risk_level, "#374151")
+
+        self.patient_score_label.setText(str(score))
+        self.patient_risk_label.setText(
+            f"Risque {risk_level.lower()}"
         )
-        self.patient_result_area.setText(
-            f"Score : {result['score']}\nNiveau de risque : {result['risk_level']}"
-        )
-        self.patient_result_area.setStyleSheet(f"""
-            background-color: white; border: 2px solid {risk_color};
-            border-radius: 12px; color: {risk_color}; font-size: 15px; font-weight: 700;
+
+        self.patient_score_label.setStyleSheet(f"""
+            QLabel {{
+                color: {risk_color};
+                font-size: 38px;
+                font-weight: 800;
+                background: transparent;
+                border: none;
+            }}
         """)
+
+        self.patient_risk_label.setStyleSheet(f"""
+            QLabel {{
+                color: {risk_color};
+                font-size: 15px;
+                font-weight: 700;
+                background: transparent;
+                border: none;
+            }}
+        """)
+
+        self.patient_result_area.setText(
+            f"Score : {score}\nNiveau de risque : {risk_level}"
+        )
 
     def select_file(self, button, file_filter, key , scope="dashboard"):
         file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "", file_filter)
@@ -2037,7 +2182,7 @@ class DashboardScreen(QWidget):
                 QPushButton {
                     border: 1.5px solid #2dd4bf;
                     border-radius: 10px;
-                    padding: 30px;
+                    padding: 0px 10px;
                     background-color: #ccfbf1;
                     color: #0f766e;
                     font-size: 13px;
@@ -2192,45 +2337,68 @@ class DashboardScreen(QWidget):
     
     
     def build_patient_detail_page(self):
+        OUTSIDE_BUTTON_HEIGHT = 48
         content = QWidget()
+
         layout = QVBoxLayout()
-        layout.setContentsMargins(60, 40, 60, 50)
-        layout.setSpacing(20)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout.setContentsMargins(18, 20, 18, 30)
+        layout.setSpacing(14)
+
         content.setLayout(layout)
 
-        # header retour + patient info
+        
+        #  header retour date
         top_bar = QHBoxLayout()
-        back_button = QPushButton(" Retour")
+        top_bar.setContentsMargins(0, 0, 0, 0)
+
+        back_button = QPushButton("←  Retour")
         back_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_button.setFixedHeight(36)
+
         back_button.setStyleSheet("""
-                    QPushButton {
-                        background-color: #f3f4f6;
-                        color: #2563eb;
-                        border: 1px solid #dbeafe;
-                        border-radius: 8px;
-                        padding: 8px 14px;
-                        font-size: 13px;
-                        font-weight: 600;
-                        text-align: center;
-                    }
+            QPushButton {
+                background-color: #f8fafc;
+                color: #2563eb;
+                border: 1px solid #dbeafe;
+                border-radius: 8px;
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }
 
-                    QPushButton:hover {
-                        background-color: #eff6ff;
-                        color: #1d4ed8;
-                        border: 1px solid #bfdbfe;
-                    }
+            QPushButton:hover {
+                background-color: #eff6ff;
+                border-color: #bfdbfe;
+            }
+        """)
 
-                    QPushButton:pressed {
-                        background-color: #dbeafe;
-                    }
-                """)
-        back_button.clicked.connect(lambda: self.content_stack.setCurrentIndex(1))
+        back_button.clicked.connect(
+            lambda: self.content_stack.setCurrentIndex(1)
+        )
+
         top_bar.addWidget(back_button)
         top_bar.addStretch()
+
+        date_label = QLabel(datetime.now().strftime("%d août, %Y"))
+
+        date_label.setStyleSheet("""
+            QLabel {
+                color: #374151;
+                font-size: 12px;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        top_bar.addWidget(date_label)
+
         layout.addLayout(top_bar)
 
-        # carte info
+       # patient info cadre 
+
         info_card = QFrame()
+
         info_card.setStyleSheet("""
             QFrame {
                 background-color: white;
@@ -2238,162 +2406,1044 @@ class DashboardScreen(QWidget):
                 border-radius: 14px;
             }
         """)
+
         info_card.setGraphicsEffect(self._make_shadow())
+        info_card.setMinimumHeight(72)
+
         info_layout = QHBoxLayout()
-        info_layout.setContentsMargins(28, 24, 28, 24)
-        info_layout.setSpacing(20)
+        info_layout.setContentsMargins(18, 12, 18, 12)
+        info_layout.setSpacing(12)
+
         info_card.setLayout(info_layout)
 
         self.patient_avatar_label = QLabel("")
-        self.patient_avatar_label.setFixedSize(64, 64)
-        self.patient_avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.patient_avatar_label.setFixedSize(46, 46)
+        self.patient_avatar_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
         self.patient_avatar_label.setStyleSheet("""
             QLabel {
                 background-color: #2563eb;
                 color: white;
-                border-radius: 32px;
-                border: none;
-                font-size: 20px;
+                border-radius: 23px;
+                font-size: 15px;
                 font-weight: bold;
+                border: none;
             }
         """)
 
-        text_col = QVBoxLayout()
-        text_col.setSpacing(10)
-        text_col.setContentsMargins(0, 0, 0, 0)
+        info_layout.addWidget(self.patient_avatar_label)
+
+        patient_text_layout = QVBoxLayout()
+        patient_text_layout.setSpacing(5)
 
         self.patient_name_label = QLabel("")
+
         self.patient_name_label.setStyleSheet("""
             QLabel {
-                font-size: 20px;
+                color: #111827;
+                font-size: 17px;
                 font-weight: 700;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        patient_text_layout.addWidget(self.patient_name_label)
+
+        badges_layout = QHBoxLayout()
+        badges_layout.setSpacing(8)
+
+        self.patient_age_badge = QLabel("")
+        self.patient_sexe_badge = QLabel("")
+        self.patient_date_badge = QLabel("")
+
+        # Age
+        self.patient_age_badge.setStyleSheet("""
+            QLabel {
+                background-color: #eff6ff;
+                color: #2563eb;
+                border-radius: 8px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: 600;
+                border: none;
+            }
+        """)
+
+        # Sexe
+        self.patient_sexe_badge.setStyleSheet("""
+            QLabel {
+                background-color: #fdf2f8;
+                color: #db2777;
+                border-radius: 8px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: 600;
+                border: none;
+            }
+        """)
+
+        # Date
+        self.patient_date_badge.setStyleSheet("""
+            QLabel {
+                background-color: #f3f4f6;
+                color: #374151;
+                border-radius: 8px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: 600;
+                border: none;
+            }
+        """)
+
+        badges_layout.addWidget(self.patient_age_badge)
+        badges_layout.addWidget(self.patient_sexe_badge)
+        badges_layout.addWidget(self.patient_date_badge)
+        badges_layout.addStretch()
+
+        patient_text_layout.addLayout(badges_layout)
+
+        info_layout.addLayout(
+            patient_text_layout,
+            stretch=1
+        )
+
+        layout.addWidget(info_card)
+
+       
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(14)
+        columns_layout.setContentsMargins(0, 0, 0, 0)
+
+        # card lwla clinical card ----
+
+        clinical_column = QWidget()
+
+        clinical_column_layout = QVBoxLayout()
+        clinical_column_layout.setContentsMargins(0, 0, 0, 0)
+        clinical_column_layout.setSpacing(10)
+
+        clinical_column.setLayout(clinical_column_layout)
+
+        # Clinical Card ----
+        clinical_card = QFrame()
+
+        clinical_card.setFixedHeight(300)
+
+        clinical_card.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 14px;
+            }
+        """)
+
+        clinical_card.setGraphicsEffect(
+            self._make_shadow()
+        )
+
+        clinical_layout = QVBoxLayout()
+        clinical_layout.setContentsMargins(14, 14, 14, 14)
+        clinical_layout.setSpacing(10)
+
+        clinical_card.setLayout(clinical_layout)
+
+        clinical_title = QLabel(
+            "Données Cliniques (.csv)"
+        )
+
+        clinical_title.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        clinical_title.setStyleSheet("""
+            QLabel {
+                color: #111827;
+                font-size: 14px;
+                font-weight: 700;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        clinical_layout.addWidget(
+            clinical_title
+        )
+
+        self.patient_clinical_upload_button = QPushButton(
+            "Upload File..."
+        )
+
+        self.patient_clinical_upload_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+
+        self.patient_clinical_upload_button.setFixedHeight(45)
+
+        self.patient_clinical_upload_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f0fdfa;
+                color: #0f766e;
+                border: 1.5px dashed #99f6e4;
+                border-radius: 9px;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 0 8px;
+            }
+
+            QPushButton:hover {
+                background-color: #ccfbf1;
+                border-color: #2dd4bf;
+            }
+        """)
+
+        self.patient_clinical_upload_button.clicked.connect(
+            lambda: self.select_file(
+                self.patient_clinical_upload_button,
+                "CSV Files (*.csv)",
+                "clinical",
+                "patient"
+            )
+        )
+
+        clinical_layout.addWidget(
+            self.patient_clinical_upload_button
+        )
+
+        self.patient_clinical_table = QTableWidget()
+
+        self.patient_clinical_table.setColumnCount(5)
+        self.patient_clinical_table.setRowCount(0)
+
+        self.patient_clinical_table.setHorizontalHeaderLabels([
+            "Age",
+            "Sexe",
+            "Score NIHSS",
+            "Temps de prise",
+            "Antécédents"
+        ])
+
+        self.patient_clinical_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+
+        self.patient_clinical_table.setSelectionMode(
+            QTableWidget.SelectionMode.NoSelection
+        )
+
+        self.patient_clinical_table.verticalHeader().setVisible(
+            False
+        )
+
+        self.patient_clinical_table.horizontalHeader().setStretchLastSection(
+            True
+        )
+
+        self.patient_clinical_table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                gridline-color: #e5e7eb;
+                color: #111827;
+                font-size: 10px;
+            }
+
+            QTableWidget::item {
+                padding: 5px;
                 color: #111827;
                 border: none;
+            }
+
+            QHeaderView::section {
+                background-color: #f8fafc;
+                color: #374151;
+                font-size: 10px;
+                font-weight: 600;
+                padding: 6px 4px;
+                border: none;
+                border-bottom: 1px solid #e5e7eb;
+            }
+
+            QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+                margin: 0px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: #cbd5e1;
+                border-radius: 4px;
+                min-height: 24px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background: #94a3b8;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+
+            QScrollBar:horizontal {
+                background: transparent;
+                height: 8px;
+                margin: 0px;
+            }
+
+            QScrollBar::handle:horizontal {
+                background: #cbd5e1;
+                border-radius: 4px;
+                min-width: 24px;
+            }
+
+            QScrollBar::handle:horizontal:hover {
+                background: #94a3b8;
+            }
+
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+
+            QScrollBar::add-page:horizontal,
+            QScrollBar::sub-page:horizontal {
                 background: transparent;
             }
         """)
+        self.patient_clinical_table.setFixedHeight(200)
 
-        badges_row = QHBoxLayout()
-        badges_row.setSpacing(8)
-        badges_row.setContentsMargins(0, 0, 0, 0)
-
-        badge_specs = [
-            ("age", "#eff6ff", "#2563eb"),
-            ("sexe", "#fdf2f8", "#db2777"),
-            ("date", "#f3f4f6", "#4b5563"),
-        ]
-
-        badge_labels = {}
-        for key, bg, fg in badge_specs:
-            badge = QLabel("")
-            badge.setStyleSheet(f"""
-                QLabel {{
-                    background-color: {bg};
-                    color: {fg};
-                    border: none;
-                    border-radius: 11px;
-                    padding: 4px 12px;
-                    font-size: 11.5px;
-                    font-weight: 600;
-                }}
-            """)
-            badges_row.addWidget(badge)
-            badge_labels[key] = badge
-
-        badges_row.addStretch()
-
-        self.patient_age_badge = badge_labels["age"]
-        self.patient_sexe_badge = badge_labels["sexe"]
-        self.patient_date_badge = badge_labels["date"]
-
-        text_col.addWidget(self.patient_name_label)
-        text_col.addLayout(badges_row)
-
-        info_layout.addWidget(self.patient_avatar_label)
-        info_layout.addLayout(text_col, stretch=1)
-        layout.addWidget(info_card)
-
-        # carte upload
-        cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(30)
-
-        self.patient_image_card = self.create_upload_card(
-            "Image Médicale (NIFTI)", "Upload Images...",
-            "NIFTI Files (*.nii *.nii.gz)", "image", scope="patient"
+        clinical_layout.addWidget(
+            self.patient_clinical_table
         )
-        self.patient_clinical_card = self.create_upload_card(
-            "Données cliniques (.csv)", "Upload File...",
-            "CSV Files (*.csv)", "clinical", scope="patient"
+
+        clinical_layout.addStretch()
+
+
+        clinical_column_layout.addWidget(
+            clinical_card
         )
-        cards_layout.addWidget(self.patient_image_card)
-        cards_layout.addWidget(self.patient_clinical_card)
-        layout.addLayout(cards_layout)
 
-        self.patient_evaluate_button = QPushButton("Evaluate prognosis")
-        self.patient_evaluate_button.setFixedHeight(45)
-        self.patient_evaluate_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.patient_evaluate_button.setEnabled(False)
-        self.patient_evaluate_button.clicked.connect(self.run_patient_evaluation)
-        layout.addWidget(self.patient_evaluate_button)
+        
+        columns_button = QPushButton(
+            "Visualiser les colonnes"
+        )
 
-        # zone de visualisation
-        self.patient_result_area = QLabel("Aucune évaluation pour l'instant.")
-        self.patient_result_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.patient_result_area.setMinimumHeight(200)
-        self.patient_result_area.setStyleSheet("""
-            background-color: white; border: 1px solid #e5e7eb;
-            border-radius: 12px; color: #9ca3af; font-size: 13px;
+        columns_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+
+        columns_button.setFixedHeight(
+            OUTSIDE_BUTTON_HEIGHT
+        )
+
+        columns_button.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                color: #2563eb;
+                border: 2px solid #2563eb;
+                border-radius: 10px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            QPushButton:hover {
+                background-color: #eff6ff;
+            }
         """)
-        layout.addWidget(self.patient_result_area)
-        layout.addStretch()
+
+        self.patient_clinical_view_button = columns_button
+
+        columns_button.clicked.connect(
+            lambda: self.open_viewer("clinical")
+        )
+
+        clinical_column_layout.addWidget(
+            columns_button
+        )
+
+        # card tanya image midicale
+
+        image_column = QWidget()
+
+        image_column_layout = QVBoxLayout()
+        image_column_layout.setContentsMargins(
+            0, 0, 0, 0
+        )
+        image_column_layout.setSpacing(10)
+
+        image_column.setLayout(
+            image_column_layout
+        )
+
+
+        image_card = QFrame()
+
+        image_card.setFixedHeight(
+            520
+        )
+
+        image_card.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 14px;
+            }
+        """)
+
+        image_card.setGraphicsEffect(
+            self._make_shadow()
+        )
+
+        image_layout = QVBoxLayout()
+        image_layout.setContentsMargins(
+            14, 14, 14, 14
+        )
+        image_layout.setSpacing(10)
+
+        image_card.setLayout(
+            image_layout
+        )
+
+
+        image_title = QLabel(
+            "Image Médicale (NIFTI)"
+        )
+
+        image_title.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        image_title.setStyleSheet("""
+            QLabel {
+                color: #111827;
+                font-size: 14px;
+                font-weight: 700;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        image_layout.addWidget(
+            image_title
+        )
+        
+        self.patient_image_upload_button = QPushButton(
+            "Upload Images..."
+        )
+
+        self.patient_image_upload_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+
+        self.patient_image_upload_button.setFixedHeight(
+            45
+        )
+
+        self.patient_image_upload_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f0fdfa;
+                color: #0f766e;
+                border: 1.5px dashed #99f6e4;
+                border-radius: 9px;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 0 8px;
+            }
+
+            QPushButton:hover {
+                background-color: #ccfbf1;
+                border-color: #2dd4bf;
+            }
+        """)
+
+        self.patient_image_upload_button.clicked.connect(
+            lambda: self.select_file(
+                self.patient_image_upload_button,
+                "NIFTI Files (*.nii *.nii.gz)",
+                "image",
+                "patient"
+            )
+        )
+
+        image_layout.addWidget(
+            self.patient_image_upload_button
+        )
+
+        image_frame = QFrame()
+
+        image_frame.setFixedHeight(410)
+
+        image_frame.setStyleSheet("""
+            QFrame {
+                background-color: #050505;
+                border-radius: 10px;
+                border: 1px solid #1f2937;
+            }
+        """)
+
+        image_frame_layout = QVBoxLayout()
+        image_frame_layout.setContentsMargins(
+            6, 6, 6, 6
+        )
+
+        image_frame.setLayout(
+            image_frame_layout
+        )
+
+        self.patient_image_preview = QLabel(
+            "Aucune image NIFTI chargée"
+        )
+
+        self.patient_image_preview.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        self.patient_image_preview.setStyleSheet("""
+            QLabel {
+                color: #9ca3af;
+                background-color: #050505;
+                border: none;
+                font-size: 11px;
+            }
+        """)
+
+        image_frame_layout.addWidget(
+            self.patient_image_preview
+        )
+
+        image_layout.addWidget(
+            image_frame
+        )
+
+        image_layout.addStretch()
+
+        image_column_layout.addWidget(
+            image_card
+        )
+
+        self.patient_image_view_button = QPushButton(
+            "Visualiser l'image"
+        )
+
+        self.patient_image_view_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+
+        self.patient_image_view_button.setFixedHeight(
+            OUTSIDE_BUTTON_HEIGHT
+        )
+
+        self.patient_image_view_button.setVisible(
+            False
+        )
+
+        self.patient_image_view_button.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                color: #2563eb;
+                border: 2px solid #2563eb;
+                border-radius: 10px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            QPushButton:hover {
+                background-color: #eff6ff;
+            }
+        """)
+
+        self.patient_image_view_button.clicked.connect(
+            lambda: self.open_viewer("image")
+        )
+
+        image_column_layout.addWidget(
+            self.patient_image_view_button
+        )
+
+        # care talta dyal pronostic
+
+        pronostic_column = QWidget()
+
+        pronostic_column_layout = QVBoxLayout()
+        pronostic_column_layout.setContentsMargins(
+            0, 0, 0, 0
+        )
+        pronostic_column_layout.setSpacing(10)
+
+        pronostic_column.setLayout(
+            pronostic_column_layout
+        )
+
+        pronostic_card = QFrame()
+
+        pronostic_card.setFixedHeight(
+            300
+        )
+
+        pronostic_card.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 14px;
+            }
+        """)
+
+        pronostic_card.setGraphicsEffect(
+            self._make_shadow()
+        )
+
+        pronostic_layout = QVBoxLayout()
+        pronostic_layout.setContentsMargins(
+            14, 18, 14, 14
+        )
+        pronostic_layout.setSpacing(12)
+
+        pronostic_card.setLayout(
+            pronostic_layout
+        )
+
+        pronostic_title = QLabel(
+            "Pronostic Post-AVC"
+        )
+
+        pronostic_title.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        pronostic_title.setStyleSheet("""
+            QLabel {
+                color: #111827;
+                font-size: 14px;
+                font-weight: 700;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        pronostic_layout.addWidget(
+            pronostic_title
+        )
+
+
+        score_container = QFrame()
+
+        score_container.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+            }
+        """)
+
+        score_layout = QVBoxLayout()
+        score_layout.setContentsMargins(
+            10, 18, 10, 18
+        )
+        score_layout.setSpacing(7)
+
+        score_container.setLayout(
+            score_layout
+        )
+
+        # Score title
+        score_title = QLabel(
+            "Score"
+        )
+
+        score_title.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        score_title.setStyleSheet("""
+            QLabel {
+                color: #6b7280;
+                font-size: 11px;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        score_layout.addWidget(
+            score_title
+        )
+
+        # Score
+        self.patient_score_label = QLabel(
+            "—"
+        )
+
+        self.patient_score_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        self.patient_score_label.setStyleSheet("""
+            QLabel {
+                color: #111827;
+                font-size: 38px;
+                font-weight: 800;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        score_layout.addWidget(
+            self.patient_score_label
+        )
+
+        # Risk title
+        risk_title = QLabel(
+            "Niveau de risque"
+        )
+
+        risk_title.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        risk_title.setStyleSheet("""
+            QLabel {
+                color: #6b7280;
+                font-size: 11px;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        score_layout.addWidget(
+            risk_title
+        )
+
+        # Risk
+        self.patient_risk_label = QLabel(
+            "—"
+        )
+
+        self.patient_risk_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        self.patient_risk_label.setStyleSheet("""
+            QLabel {
+                color: #6b7280;
+                font-size: 15px;
+                font-weight: 700;
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        score_layout.addWidget(
+            self.patient_risk_label
+        )
+
+        pronostic_layout.addWidget(
+            score_container
+        )
+
+        pronostic_layout.addStretch()
+
+        pronostic_column_layout.addWidget(
+            pronostic_card
+        )
+
+
+        self.patient_segmentation_button = QPushButton(
+            "Visualiser la segmentation"
+        )
+
+        self.patient_segmentation_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+
+        self.patient_segmentation_button.setFixedHeight(
+            OUTSIDE_BUTTON_HEIGHT
+        )
+
+        self.patient_segmentation_button.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                color: #2563eb;
+                border: 2px solid #2563eb;
+                border-radius: 10px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            QPushButton:hover {
+                background-color: #eff6ff;
+            }
+        """)
+
+        self.patient_segmentation_button.clicked.connect(
+            self.open_segmentation_viewer
+        )
+
+        pronostic_column_layout.addWidget(
+            self.patient_segmentation_button
+        )
+
+
+        self.patient_evaluate_button = QPushButton(
+            "Évaluer le pronostic"
+        )
+
+        self.patient_evaluate_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
+
+        self.patient_evaluate_button.setFixedHeight(
+            OUTSIDE_BUTTON_HEIGHT
+        )
+
+        self.patient_evaluate_button.setEnabled(
+            False
+        )
+
+        self.patient_evaluate_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 10px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+
+            QPushButton:disabled {
+                background-color: #9ca3af;
+                color: white;
+            }
+        """)
+
+        self.patient_evaluate_button.clicked.connect(
+            self.run_patient_evaluation
+        )
+
+        pronostic_column_layout.addWidget(
+            self.patient_evaluate_button
+        )
+
+        self.patient_result_area = QLabel("")
+        self.patient_result_area.setVisible(False)
+
+   
+
+        # Clinical
+        columns_layout.addWidget(
+            clinical_column,
+            stretch=1,
+            alignment=Qt.AlignmentFlag.AlignTop
+        )
+
+        # Image légèrement plus large
+        columns_layout.addWidget(
+            image_column,
+            stretch=2,
+            alignment=Qt.AlignmentFlag.AlignTop
+        )
+
+        # Pronostic
+        columns_layout.addWidget(
+            pronostic_column,
+            stretch=1,
+            alignment=Qt.AlignmentFlag.AlignTop
+        )
+
+        layout.addLayout(
+            columns_layout
+        )
+
         scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background-color: #f4f5f7; }}{self.scrollbar_style}")
-        scroll.setWidget(content)
+
+        scroll.setWidgetResizable(
+            True
+        )
+
+        scroll.setStyleSheet(
+            f"""
+            QScrollArea {{
+                border: none;
+                background-color: #f4f5f7;
+            }}
+
+            {self.scrollbar_style}
+            """
+        )
+
+        scroll.setWidget(
+            content
+        )
+
         return scroll
 
-
-    
-    
-    
+        
 
     def show_image_preview(self, file_path):
         try:
             img = nib.load(file_path)
             data = img.get_fdata()
+
             mid = data.shape[2] // 2
+
             slice_ = np.rot90(data[:, :, mid])
+
             slice_ = slice_ - slice_.min()
+
             if slice_.max() > 0:
                 slice_ = slice_ / slice_.max()
-            slice_ = np.ascontiguousarray((slice_ * 255).astype(np.uint8))
-            h, w = slice_.shape
-            qimg = QImage(slice_.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
-            pixmap = QPixmap.fromImage(qimg).scaled(
-                160, 160, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+
+            slice_ = np.ascontiguousarray(
+                (slice_ * 255).astype(np.uint8)
             )
+
+            h, w = slice_.shape
+
+            qimg = QImage(
+                slice_.data,
+                w,
+                h,
+                w,
+                QImage.Format.Format_Grayscale8
+            ).copy()
+
+            pixmap = QPixmap.fromImage(qimg).scaled(
+                500,
+                500,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+
             self.patient_image_preview.setPixmap(pixmap)
-            self.patient_image_preview.setStyleSheet("border-radius: 8px;")
+            self.patient_image_preview.setStyleSheet("""
+                QLabel {
+                    background-color: #050505;
+                    border: none;
+                    border-radius: 8px;
+                }
+            """)
+
             self.patient_image_preview.setVisible(True)
-        except Exception:
-            self.patient_image_preview.setVisible(False)
+
+        except Exception as e:
+            self.patient_image_preview.setText(
+                "Impossible de charger l'image"
+            )
+            self.patient_image_preview.setStyleSheet("""
+                QLabel {
+                    color: #9ca3af;
+                    background-color: #050505;
+                    border: none;
+                }
+            """)
+            
+    def open_segmentation_viewer(self):
+        QMessageBox.information(
+            self,
+            "Segmentation",
+            "La visualisation de la segmentation sera disponible "
+            "après l'intégration du masque NIFTI."
+        )
 
     def show_clinical_preview(self, file_path):
+        """
+        Charge le CSV et affiche un aperçu dans le tableau
+        de la page détail patient.
+        """
         try:
-            df = pd.read_csv(file_path, sep=None, engine="python")
-            rows, cols = df.shape
-            age = df["Age"].iloc[0] if "Age" in df.columns else "—"
-            sexe = df["Sex"].iloc[0] if "Sex" in df.columns else "—"
-            self.patient_clinical_preview.setText(
-                f"{rows} ligne(s) · {cols} colonnes\nÂge: {age}   Sexe: {sexe}"
+            df = pd.read_csv(
+                file_path,
+                sep=None,
+                engine="python"
             )
-            self.patient_clinical_preview.setStyleSheet(
-                "color: #374151; font-size: 12px; background-color: #f9fafb; "
-                "border-radius: 8px; padding: 10px;"
+
+            # Colonnes importantes pour l'aperçu
+            wanted_columns = [
+                "Age",
+                "Sex",
+                "NIHSS at admission",
+                "Onset to door",
+                "mRS premorbid"
+            ]
+
+            available_columns = [
+                col
+                for col in wanted_columns
+                if col in df.columns
+            ]
+
+            # Si aucune colonne connue
+            if not available_columns:
+                self.patient_clinical_table.setRowCount(0)
+                return
+
+            self.patient_clinical_table.setColumnCount(
+                len(available_columns)
             )
-            self.patient_clinical_preview.setVisible(True)
-        except Exception:
-            self.patient_clinical_preview.setVisible(False)
+
+            self.patient_clinical_table.setHorizontalHeaderLabels(
+                available_columns
+            )
+
+            # Afficher maximum 10 lignes
+            preview_df = df[available_columns].head(10)
+
+            self.patient_clinical_table.setRowCount(
+                len(preview_df)
+            )
+
+            for row_index, (_, row_data) in enumerate(
+                preview_df.iterrows()
+            ):
+                for col_index, column in enumerate(
+                    available_columns
+                ):
+                    value = row_data[column]
+
+                    item = QTableWidgetItem(
+                        str(value)
+                    )
+
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignCenter
+                    )
+
+                    self.patient_clinical_table.setItem(
+                        row_index,
+                        col_index,
+                        item
+                    )
+
+            # Ajuster les colonnes
+            self.patient_clinical_table.resizeColumnsToContents()
+
+            # Garder une largeur raisonnable
+            for i in range(
+                self.patient_clinical_table.columnCount()
+            ):
+                if self.patient_clinical_table.columnWidth(i) > 140:
+                    self.patient_clinical_table.setColumnWidth(
+                        i,
+                        140
+                    )
+
+        except Exception as e:
+            self.patient_clinical_table.setRowCount(0)
+
+            print(
+                f"Erreur aperçu CSV : {e}"
+            )
             
             
     def open_viewer(self, key):
@@ -2473,12 +3523,13 @@ class DashboardScreen(QWidget):
         layout.addLayout(plane_row)
 
         image_frame = QFrame()
-        image_frame.setFixedSize(520, 520)
+        image_frame.setFixedSize(580, 500)
         image_frame.setStyleSheet("""
             QFrame { background-color: #0a0a0a; border-radius: 14px; border: 1px solid #1f2937; }
         """)
         image_frame_layout = QVBoxLayout()
-        image_frame_layout.setContentsMargins(10, 10, 10, 10)
+        image_frame_layout.setContentsMargins(0, 0, 0, 0)
+        self.patient_image_preview.setScaledContents(True) 
         image_frame.setLayout(image_frame_layout)
 
         image_label = QLabel()
