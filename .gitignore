@@ -8,6 +8,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+config.py
+
 # C extensions
 *.so
 
