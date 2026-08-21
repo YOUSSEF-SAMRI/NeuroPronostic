@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QFrame, QFileDialog,
     QGraphicsDropShadowEffect, QMessageBox, QLineEdit
 )
+from viewers.segmentation_viewer import SegmentationViewerDialog
 from collections import defaultdict
 from models.evaluation import fake_evaluate_prognosis
 from models.evaluations import add_evaluation
@@ -1998,6 +1999,8 @@ class DashboardScreen(QWidget):
             """)
 
         self.update_patient_evaluate_button()
+        mask_path = self.patient_uploads.get(id_, {}).get("mask")
+        self.patient_segmentation_button.setEnabled(bool(mask_path))
         self.content_stack.setCurrentIndex(2)
         
     def load_clinical_table(self, file_path):
@@ -2103,6 +2106,9 @@ class DashboardScreen(QWidget):
             result=result,
         )
         self.display_evaluation_result(result)
+        
+        self.patient_uploads[pid]["mask"] = result.get("mask_path")
+        self.patient_segmentation_button.setEnabled(bool(self.patient_uploads[pid]["mask"]))
         # ici fain an7et pipline
         
         
@@ -3158,6 +3164,7 @@ class DashboardScreen(QWidget):
         self.patient_segmentation_button = QPushButton(
             "Visualiser la segmentation"
         )
+        self.patient_segmentation_button.setEnabled(False)
 
         self.patient_segmentation_button.setCursor(
             Qt.CursorShape.PointingHandCursor
@@ -3347,14 +3354,6 @@ class DashboardScreen(QWidget):
                     border: none;
                 }
             """)
-            
-    def open_segmentation_viewer(self):
-        QMessageBox.information(
-            self,
-            "Segmentation",
-            "La visualisation de la segmentation sera disponible "
-            "après l'intégration du masque NIFTI."
-        )
 
     def show_clinical_preview(self, file_path):
         """
@@ -4650,8 +4649,18 @@ class DashboardScreen(QWidget):
 
 
 
+    def open_segmentation_viewer(self):
+        pid = self.current_patient[0]
+        uploads = self.patient_uploads.get(pid, {})
+        image_path = uploads.get("image")
+        mask_path = uploads.get("mask")
 
+        if not image_path or not mask_path:
+            self.show_error_message("Erreur", "Aucune segmentation disponible pour ce patient.")
+            return
 
+        dialog = SegmentationViewerDialog(image_path, mask_path, parent=self)
+        dialog.exec()
 
 
 

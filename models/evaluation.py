@@ -18,5 +18,5 @@ def fake_evaluate_prognosis(image_path, clinical_path):
     return {
         "score": score,
         "risk_level": risk_level,
+        "mask_path": "masks/sub-stroke0001_ses-01_lesion-msk.nii",  # temporaire, en attendant le vrai modèle
     }
-
