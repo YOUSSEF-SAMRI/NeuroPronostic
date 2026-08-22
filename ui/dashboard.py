@@ -1,8 +1,9 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFrame, QFileDialog,
-    QGraphicsDropShadowEffect, QMessageBox, QLineEdit
+    QGraphicsDropShadowEffect, QMessageBox, QLineEdit,QGraphicsBlurEffect
 )
+
 from viewers.segmentation_viewer import SegmentationViewerDialog
 from collections import defaultdict
 from models.evaluation import fake_evaluate_prognosis
@@ -35,6 +36,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import QDateEdit
 from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QTextCharFormat, QColor
+
 
 REQUIRED_CLINICAL_COLUMNS = [
                             "Center",
@@ -71,6 +73,42 @@ STRICTLY_REQUIRED_COLUMNS = [
                             "NIHSS at admission",
                             "mRS premorbid",
                             ]
+
+class BlurredBackgroundWidget(QWidget):
+    """Widget avec une image de fond floutée + un voile sombre pour poser du contenu par-dessus."""
+    def __init__(self, bg_path=None, blur_radius=2, overlay_rgba=(9, 14, 30, 175), parent=None):
+        super().__init__(parent)
+        self.bg_label = QLabel(self)
+        self.bg_label.setScaledContents(True)
+        if bg_path and os.path.exists(bg_path):
+            pixmap = QPixmap(bg_path)
+            if not pixmap.isNull():
+                self.bg_label.setPixmap(pixmap)
+                blur = QGraphicsBlurEffect()
+                blur.setBlurRadius(blur_radius)
+                self.bg_label.setGraphicsEffect(blur)
+
+        r, g, b, a = overlay_rgba
+        self.overlay = QWidget(self)
+        self.overlay.setStyleSheet(f"background-color: rgba({r}, {g}, {b}, {a});")
+
+        self.bg_label.lower()
+        self.overlay.lower()
+
+    def resizeEvent(self, event):
+        self.bg_label.setGeometry(self.rect())
+        self.overlay.setGeometry(self.rect())
+        self.bg_label.lower()
+        self.overlay.lower()
+        super().resizeEvent(event)
+
+
+FR_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+FR_MONTHS = ["", "janvier", "février", "mars", "avril", "mai", "juin",
+             "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+
+
+
 
 
 class DashboardScreen(QWidget):
@@ -804,8 +842,9 @@ class DashboardScreen(QWidget):
         for btn in self.nav_buttons:
             btn.setStyleSheet(self.button_style)
         active_button.setStyleSheet(self.active_button_style)
-
-        if index == 1:  # page Patients
+        if index == 0:
+            self.refresh_dashboard_home()
+        elif index == 1:  # page Patients
             self.load_patients()
         elif index == 3:
             self.load_historique()
@@ -978,13 +1017,13 @@ class DashboardScreen(QWidget):
         self.update_evaluate_button()
         self.reset_upload_buttons()
 
-    def set_user(self, user_id, nom, role):
-        self.user_id = user_id
-        self.nom = nom
-        self.role = role
-        if self.users_button:
-            self.users_button.setVisible(role == "admin")
-        self.reset_to_dashboard()
+    # def set_user(self, user_id, nom, role):
+    #     self.user_id = user_id
+    #     self.nom = nom
+    #     self.role = role
+    #     if self.users_button:
+    #         self.users_button.setVisible(role == "admin")
+    #     self.reset_to_dashboard()
         
         
     def set_user(self, user_id, nom, role):
@@ -993,60 +1032,269 @@ class DashboardScreen(QWidget):
         self.role = role
         if self.users_button:
             self.users_button.setVisible(role == "admin")
-            
+        self.refresh_dashboard_home()
+    # ////////////////////////
+    
     def build_content(self):
-        content = QWidget()
+        # ⚠️ mets ici le chemin exact de ton image dans assets/
+        bg_path = "assets/background.png"
+
+        content = BlurredBackgroundWidget(bg_path=bg_path)
         content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(60, 80, 60, 50)
-        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(50, 40, 50, 40)
+        content_layout.setSpacing(22)
         content.setLayout(content_layout)
 
+        # --- Header : titre + sous-titre + date ---
+        header_row = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(4)
+
         title = QLabel("NeuroPronostic")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 32px; font-weight: bold; color: #374151;")
+        title.setStyleSheet("font-size: 30px; font-weight: 800; color: white; background: transparent;")
 
-        subtitle = QLabel(
-            "Upload a medical scan and clinical data — get an instant prognosis and segmentation.\n"
-            "Powered by deep learning, from image to insight."
-        )
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #0f9f76; font-size: 13px;")
+        welcome = QLabel(f"Bienvenue <span style='color:#60a5fa;'>{self.nom or 'Docteur'}</span> dans votre espace de gestion.")
+        welcome.setTextFormat(Qt.TextFormat.RichText)
+        welcome.setStyleSheet("font-size: 13px; color: #cbd5e1; background: transparent;")
 
-        content_layout.addWidget(title)
-        content_layout.addWidget(subtitle)
-        content_layout.addSpacing(90)
+        title_col.addWidget(title)
+        title_col.addWidget(welcome)
+        header_row.addLayout(title_col)
+        header_row.addStretch()
 
-        cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(30)
+        date_str, day_name = self._french_date_parts()
+        date_badge = QFrame()
+        date_badge.setStyleSheet("QFrame { background-color: rgba(255,255,255,25); border-radius: 12px; }")
+        date_layout = QHBoxLayout()
+        date_layout.setContentsMargins(16, 10, 16, 10)
+        date_layout.setSpacing(10)
+        date_badge.setLayout(date_layout)
 
-        image_card = self.create_upload_card(
-            "Image Médicale (NIFTI)", "Upload Images...",
-            "NIFTI Files (*.nii *.nii.gz)", "image"
-        )
-        clinical_card = self.create_upload_card(
-            "Données cliniques (.csv)", "Upload File...",
-            "CSV Files (*.csv)", "clinical"
-        )
+        calendar_icon = QLabel("")
+        calendar_icon.setStyleSheet("font-size: 18px; background: transparent;")
+        date_text_col = QVBoxLayout()
+        date_text_col.setSpacing(0)
+        date_value = QLabel(date_str)
+        date_value.setStyleSheet("color: white; font-size: 13px; font-weight: 700; background: transparent;")
+        date_day = QLabel(day_name)
+        date_day.setStyleSheet("color: #94a3b8; font-size: 11px; background: transparent;")
+        date_text_col.addWidget(date_value)
+        date_text_col.addWidget(date_day)
+        date_layout.addWidget(calendar_icon)
+        date_layout.addLayout(date_text_col)
 
-        cards_layout.addWidget(image_card)
-        cards_layout.addWidget(clinical_card)
-        content_layout.addLayout(cards_layout)
-        content_layout.addSpacing(30)
+        header_row.addWidget(date_badge)
+        content_layout.addLayout(header_row)
 
-        evaluate_button = QPushButton("Evaluate prognosis")
-        evaluate_button.setFixedHeight(45)
-        evaluate_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        evaluate_button.setEnabled(False)
-        evaluate_button.clicked.connect(self.run_evaluation)
+        # --- Cartes stats ---
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(18)
 
-        content_layout.addWidget(evaluate_button)
+        card1, self.home_patients_value = self._make_dashboard_stat_card("#2563eb", "Patients", "Patients enregistrés")
+        card2, self.home_evals_value = self._make_dashboard_stat_card("#7c3aed", "Évaluations", "Évaluations réalisées")
+        card3, self.home_today_value = self._make_dashboard_stat_card("#0d9488", "Aujourd'hui", "Évaluations aujourd'hui")
+        
+        stats_row.addWidget(card1)
+        stats_row.addWidget(card2)
+        stats_row.addWidget(card3)
+        content_layout.addLayout(stats_row)
+
+        # --- Bannière ---
+        section_label = QLabel("  Évaluations récentes")
+        section_label.setStyleSheet("color: white; font-size: 15px; font-weight: 700; background: transparent;border: none;")
+        content_layout.addWidget(section_label)
+
+        banner = QFrame()
+        banner.setFixedHeight(130)
+        banner.setStyleSheet("""
+            QFrame {
+                background-color: rgba(37, 99, 235, 110);
+                border: 1px solid rgba(255, 255, 255, 60);
+                border-radius: 16px;
+            }
+        """)
+        banner_shadow = QGraphicsDropShadowEffect()
+        banner_shadow.setBlurRadius(30)
+        banner_shadow.setXOffset(0)
+        banner_shadow.setYOffset(8)
+        banner_shadow.setColor(QColor(0, 0, 0, 90))
+        banner.setGraphicsEffect(banner_shadow)
+        banner_layout = QHBoxLayout()
+        banner_layout.setContentsMargins(26, 20, 26, 20)
+        banner_layout.setSpacing(18)
+        banner.setLayout(banner_layout)
+
+        banner_icon = QLabel("")
+        banner_icon.setFixedSize(56, 56)
+        banner_icon.setStyleSheet("""
+            QLabel {
+                background-color: rgba(255, 255, 255, 45);
+                border: 1px solid rgba(255, 255, 255, 70);
+                border-radius: 14px;
+            }
+        """)
+        glass_shadow = QGraphicsDropShadowEffect()
+        glass_shadow.setBlurRadius(18)
+        glass_shadow.setXOffset(0)
+        glass_shadow.setYOffset(0)
+        glass_shadow.setColor(QColor(255, 255, 255, 60))
+        banner_icon.setGraphicsEffect(glass_shadow)
+        banner_layout.addWidget(banner_icon)
+
+        banner_text_col = QVBoxLayout()
+        banner_text_col.setSpacing(4)
+        banner_title = QLabel("Gérez vos patients et leurs évaluations")
+        banner_title.setStyleSheet("color: white; font-size: 16px; font-weight: 700; background: transparent;border: none;")
+        banner_sub = QLabel("Sélectionnez un patient pour consulter ses données cliniques,\nson image médicale et créer une nouvelle évaluation.")
+        banner_sub.setStyleSheet("color: rgba(255,255,255,210); font-size: 12px; background: transparent;border: none;")
+        banner_text_col.addWidget(banner_title)
+        banner_text_col.addWidget(banner_sub)
+        banner_layout.addLayout(banner_text_col, stretch=1)
+        content_layout.addWidget(banner)
+
+        # --- Accès rapides ---
+        quick_label = QLabel("  Accès rapides")
+        quick_label.setStyleSheet("color: white; font-size: 15px; font-weight: 700; background: transparent;border: none;")
+        content_layout.addWidget(quick_label)
+
+        quick_row = QHBoxLayout()
+        quick_row.setSpacing(18)
+
+        patients_quick = self._make_quick_access_button("Voir les patients", "Accéder à la liste de tous les patients", primary=True)
+        patients_quick.clicked.connect(lambda: self.switch_page(1, self.nav_buttons[2]))
+        quick_row.addWidget(patients_quick)
+
+        historique_quick = self._make_quick_access_button("Voir l'historique", "Consulter l'historique des évaluations", primary=False)
+        historique_quick.clicked.connect(lambda: self.switch_page(3, self.nav_buttons[1]))
+        quick_row.addWidget(historique_quick)
+
+        content_layout.addLayout(quick_row)
         content_layout.addStretch()
 
-        self.evaluate_button = evaluate_button
-        self.update_evaluate_button()  
-
+        self.evaluate_button = None  # plus de bouton Evaluate rapide sur cette page
         return content
+
+    def _french_date_parts(self):
+        now = datetime.now()
+        return f"{now.day} {FR_MONTHS[now.month]} {now.year}", FR_DAYS[now.weekday()]
+
+    def _make_dashboard_stat_card(self, color, title_text, caption_text):
+        card = QFrame()
+        card.setFixedHeight(150)
+        card.setStyleSheet("""
+            QFrame {
+                background-color: rgba(17, 24, 55, 190);
+                border: 1px solid rgba(255,255,255,25);
+                border-radius: 16px;
+            }
+        """)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(6)
+        card.setLayout(layout)
+
+        accent = QFrame()
+        accent.setFixedSize(42, 6)
+        accent.setStyleSheet(f"QFrame {{ background-color: {color}; border: none; border-radius: 3px; }}")
+        layout.addWidget(accent)
+
+        title_label = QLabel(title_text)
+        title_label.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600; background: transparent; border: none;")
+        layout.addWidget(title_label)
+
+        value_label = QLabel("0")
+        value_label.setStyleSheet("color: white; font-size: 30px; font-weight: 800; background: transparent; border: none;")
+        layout.addWidget(value_label)
+
+        caption_label = QLabel(caption_text)
+        caption_label.setStyleSheet("color: #64748b; font-size: 11px; background: transparent; border: none;")
+        layout.addWidget(caption_label)
+
+        return card, value_label
+
+    def _make_quick_access_button(self, title_text, subtitle_text, primary=True):
+        btn = QPushButton()
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFixedHeight(90)
+
+        if primary:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(37, 99, 235, 110);
+                    border: 1px solid rgba(255, 255, 255, 60);
+                    border-radius: 14px; text-align: left; padding: 0px;
+                }
+                QPushButton:hover { background-color: rgba(37, 99, 235, 150); }
+            """)
+            text_color, sub_color = "white", "rgba(255,255,255,210)"
+            glass_bg, glass_border = "rgba(255,255,255,45)", "rgba(255,255,255,70)"
+        else:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 255, 255, 55);
+                    border: 1px solid rgba(255, 255, 255, 90);
+                    border-radius: 14px; text-align: left; padding: 0px;
+                }
+                QPushButton:hover { background-color: rgba(255, 255, 255, 85); }
+            """)
+            text_color, sub_color = "white", "rgba(255,255,255,190)"
+            glass_bg, glass_border = "rgba(255,255,255,45)", "rgba(255,255,255,70)"
+
+        card_shadow = QGraphicsDropShadowEffect()
+        card_shadow.setBlurRadius(24)
+        card_shadow.setXOffset(0)
+        card_shadow.setYOffset(6)
+        card_shadow.setColor(QColor(0, 0, 0, 80))
+        btn.setGraphicsEffect(card_shadow)
+
+        layout = QHBoxLayout(btn)
+        layout.setContentsMargins(20, 14, 20, 14)
+        layout.setSpacing(14)
+
+        icon_label = QLabel("")
+        icon_label.setFixedSize(46, 46)
+        icon_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {glass_bg};
+                border: 1px solid {glass_border};
+                border-radius: 12px;
+            }}
+        """)
+        layout.addWidget(icon_label)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        title_lbl = QLabel(title_text)
+        title_lbl.setStyleSheet(f"color: {text_color}; font-size: 15px; font-weight: 700; background: transparent; border: none;")
+        sub_lbl = QLabel(subtitle_text)
+        sub_lbl.setStyleSheet(f"color: {sub_color}; font-size: 11px; background: transparent; border: none;")
+        text_col.addWidget(title_lbl)
+        text_col.addWidget(sub_lbl)
+        layout.addLayout(text_col, 1)
+
+        arrow = QLabel("→")
+        arrow.setStyleSheet(f"color: {text_color}; font-size: 18px; font-weight: 700; background: transparent; border: none;")
+        layout.addWidget(arrow)
+
+        return btn
+
+    def refresh_dashboard_home(self):
+        if not self.user_id or not hasattr(self, "home_patients_value"):
+            return
+        patients = get_patients_by_medecin(self.user_id)
+        evaluations = get_evaluations_by_medecin(self.user_id)
+
+        self.home_patients_value.setText(str(len(patients)))
+        self.home_evals_value.setText(str(len(evaluations)))
+
+        today = datetime.now().date()
+        today_count = sum(1 for row in evaluations if row[5] and row[5].date() == today)
+        self.home_today_value.setText(str(today_count))
+    
+    
+    
+    
+    # ///////////////////////////////////////
 
     def create_upload_card(self, label_text, button_text, file_filter, key ,scope="dashboard"):
         card = QFrame()
@@ -2312,6 +2560,8 @@ class DashboardScreen(QWidget):
 
 
     def update_evaluate_button(self):
+        if self.evaluate_button is None:
+            return
         ready = self.image_path is not None and self.clinical_path is not None
         self.evaluate_button.setEnabled(ready)
         self.evaluate_button.setStyleSheet(f"""
